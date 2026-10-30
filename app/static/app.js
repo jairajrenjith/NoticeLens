@@ -13,7 +13,7 @@ function app() {
     branches: ["CSE", "ECE", "EEE", "ME", "CE", "IE", "AE", "ARCH"],
     lang: LS.get("lang", "en"),
     dark: LS.get("dark", window.matchMedia("(prefers-color-scheme: dark)").matches),
-    profile: LS.get("profile", { semester: "", branch: "" }),
+    profile: { email: "", ...LS.get("profile", { semester: "", branch: "" }) }, emailing: false,
     onboard: !LS.get("onboarded", false), step: 0,
     tab: "summarize", text: "", loading: false, loadStep: 0, result: null, error: "",
     board: LS.get("board", []), checked: LS.get("checked", {}),
@@ -29,7 +29,7 @@ function app() {
       this.$watch("useAi", (v) => { LS.set("useAi", v); if (!v) this.aiFailed = ""; });
       this.$watch("tab", (v) => v === "plan" && this.jumpToNextEvent());
       document.documentElement.lang = this.lang;
-      fetch("/api/health").then((r) => r.json()).then((h) => (this.health = h)).catch(() => {});
+      fetch("/api/health").then((r) => r.json()).then((h) => { this.health = h; if (!this.profile.email && h.mail_default_to) this.profile.email = h.mail_default_to; }).catch(() => {});
       fetch("/api/samples").then((r) => r.json()).then((s) => (this.samples = s)).catch(() => {});
       window.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && this.tab === "summarize") this.summarize();
@@ -155,10 +155,22 @@ function app() {
       const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
       a.download = (s.title || "notice").replace(/[^\w\u0080-￿]+/g, "_").slice(0, 40) + ".ics"; a.click();
     },
-    speak() {
+    async speak() {
       if (this.speaking) return this.stopSpeak();
-      const s = this.s; if (!s || !window.speechSynthesis) return;
+      const s = this.s; if (!s) return;
       const text = [s.title, s.tldr, ...(s.key_points || []), ...(s.actions || []).map((a) => a.task)].join(". ");
+      const lang = this.result.lang || this.lang;
+      this.speaking = true;
+      try {  // 1) server voice (works for ml/hi/ta even when the browser has no voice)
+        const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang }) });
+        if (!res.ok) throw new Error();
+        this._audio = new Audio(URL.createObjectURL(await res.blob()));
+        this._audio.onended = this._audio.onerror = () => (this.speaking = false);
+        if (!this.speaking) return;  // stopped while loading
+        await this._audio.play(); return;
+      } catch { this.speaking = false; }
+      // 2) fallback: browser speech synthesis
+      if (!window.speechSynthesis) return this.toast("🔇 Speech not available");
       const u = new SpeechSynthesisUtterance(text);
       const code = this.langs.find((l) => l.code === (this.result.lang || this.lang)).speech;
       u.lang = code; const v = speechSynthesis.getVoices().find((x) => x.lang.replace("_", "-").startsWith(code.slice(0, 2)));
@@ -166,7 +178,7 @@ function app() {
       u.onend = u.onerror = () => (this.speaking = false);
       speechSynthesis.cancel(); speechSynthesis.speak(u); this.speaking = true;
     },
-    stopSpeak() { window.speechSynthesis?.cancel(); this.speaking = false; },
+    stopSpeak() { window.speechSynthesis?.cancel(); this._audio?.pause(); this._audio = null; this.speaking = false; },
 
     // ---------- Board ----------
     viewOf(item) { return item.views[this.lang] || Object.values(item.views)[0]; },
@@ -358,6 +370,27 @@ function app() {
         } catch {}
       }
       this.loadingSamples = false;
+    },
+
+    // ---------- Email (Gmail SMTP) ----------
+    async sendMail(url, payload) {
+      if (this.emailing) return;
+      let to = this.profile.email;
+      if (!to) { to = prompt(this.t("your_email")); if (!to) return; this.profile.email = to.trim(); }
+      this.emailing = true;
+      try {
+        const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, ...payload }) });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.detail);
+        this.toast("📧 " + this.t("email_sent") + " " + d.to);
+      } catch (e) { this.toast("⚠️ " + (e.message || this.t("error"))); }
+      finally { this.emailing = false; }
+    },
+    emailSummary() { this.sendMail("/api/email/summary", { summary: this.s }); },
+    emailDigest() {
+      const tasks = this.openTasks.slice(0, 10).map(({ task, date, urgency, title, emoji, category }) => ({ task, date, urgency, title, emoji, category }));
+      const kpis = Object.fromEntries(this.kpis.map((k) => [this.t(k.k), k.v]));
+      this.sendMail("/api/email/digest", { tasks, kpis });
     },
 
     // ---------- Onboarding ----------

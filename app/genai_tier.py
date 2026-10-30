@@ -9,7 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 LANG_NAMES = {"en": "English", "ml": "Malayalam (മലയാളം)", "hi": "Hindi (हिन्दी)", "ta": "Tamil (தமிழ்)"}
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Tried in order: an overloaded (503), rate-limited (429) or retired (404) model falls through to the next.
+MODELS = [m.strip() for m in os.getenv("GEMINI_MODELS", os.getenv("GEMINI_MODEL", "gemini-3.8-flash") +
+                                                 ",gemini-3.7-flash,gemini-flash-latest,gemini-3.1-flash-lite").split(",") if m.strip()]
+MODEL = MODELS[0]
 _client = None
 
 
@@ -20,7 +23,9 @@ def client():
         return None
     if _client is None:
         from google import genai
-        _client = genai.Client(api_key=key)
+        from google.genai import types
+        # Per-request timeout so a slow/overloaded model falls through instead of hanging the UI.
+        _client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS", "25000"))))
     return _client
 
 
@@ -32,9 +37,24 @@ def _gen(prompt, parts=None, json_mode=True):
     from google.genai import types
     cfg = types.GenerateContentConfig(temperature=0.2,
                                       response_mime_type="application/json" if json_mode else "text/plain")
+    global MODEL
     contents = (parts or []) + [prompt]
-    resp = client().models.generate_content(model=MODEL, contents=contents, config=cfg)
-    return resp.text
+    last = None
+    for model in dict.fromkeys([MODEL] + MODELS):
+        for attempt in range(2):
+            try:
+                resp = client().models.generate_content(model=model, contents=contents, config=cfg)
+                MODEL = model  # remember the one that works
+                return resp.text
+            except Exception as e:  # noqa: BLE001
+                last, msg = e, str(e)
+                if "503" in msg and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                if any(c in msg for c in ("400", "401", "403", "API key")):
+                    raise  # bad key / bad request: another model won't help
+                break  # overloaded, rate-limited, retired or timed out: try the next model
+    raise last
 
 
 def _parse(txt):

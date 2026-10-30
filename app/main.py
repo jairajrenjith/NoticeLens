@@ -6,11 +6,11 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import diff, genai_tier, ml, rag, rules
+from . import diff, genai_tier, mailer, ml, rag, rules
 from .data import SAMPLES
 
 STATIC = Path(__file__).parent / "static"
@@ -23,6 +23,22 @@ class SummarizeReq(BaseModel):
     lang: str = "en"
     profile: dict | None = None
     use_ai: bool = True
+
+
+class EmailSummaryReq(BaseModel):
+    to: str | None = None
+    summary: dict
+
+
+class EmailDigestReq(BaseModel):
+    to: str | None = None
+    tasks: list[dict]
+    kpis: dict | None = None
+
+
+class TTSReq(BaseModel):
+    text: str
+    lang: str = "en"
 
 
 class AskReq(BaseModel):
@@ -152,7 +168,8 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ai_enabled": genai_tier.enabled(), "model": genai_tier.MODEL, "store_size": rag.count()}
+    return {"ai_enabled": genai_tier.enabled(), "model": genai_tier.MODEL, "store_size": rag.count(),
+            "mail_enabled": mailer.enabled(), "mail_default_to": mailer.default_to()}
 
 
 @app.get("/api/samples")
@@ -188,13 +205,53 @@ async def extract(file: UploadFile = File(...)):
     raise HTTPException(415, "Upload a PDF, image or .txt file.")
 
 
+def _mail(to, built):
+    if not mailer.enabled():
+        raise HTTPException(503, "Email is not configured (SMTP_USER / SMTP_PASS in .env).")
+    to = (to or mailer.default_to()).strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", to):
+        raise HTTPException(400, "Please enter a valid email address.")
+    subject, html_body, text_body, atts = built
+    try:
+        mailer.send(to, subject, html_body, text_body, atts)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Could not send email: {type(e).__name__}: {str(e)[:150]}")
+    return {"ok": True, "to": to}
+
+
+@app.post("/api/email/summary")
+def email_summary(req: EmailSummaryReq):
+    return _mail(req.to, mailer.summary_email(req.summary))
+
+
+@app.post("/api/email/digest")
+def email_digest(req: EmailDigestReq):
+    return _mail(req.to, mailer.digest_email(req.tasks[:10], req.kpis))
+
+
+@app.post("/api/tts")
+def tts(req: TTSReq):
+    """Server-side speech (Google TTS) — browsers on Linux often have no Malayalam/Tamil/Hindi voice."""
+    from gtts import gTTS
+    buf = io.BytesIO()
+    try:
+        gTTS(req.text[:3000], lang=req.lang if req.lang in ("en", "ml", "hi", "ta") else "en").write_to_fp(buf)
+    except Exception as e:  # noqa: BLE001 — no internet etc.; the browser falls back to speechSynthesis
+        raise HTTPException(503, f"TTS unavailable: {e}")
+    return Response(buf.getvalue(), media_type="audio/mpeg")
+
+
 @app.post("/api/ask")
 def ask(req: AskReq):
     docs = rag.search(req.question, k=4, min_score=0.02)
+    ai_ok = req.use_ai and genai_tier.enabled()
+    if not docs and ai_ok:
+        # Non-English questions don't match English notices lexically: let Gemini read the latest ones.
+        docs = rag.latest(5)
     if not docs:
         return {"answer": None, "sources": []}
     sources = [{"id": d["id"], "title": d["title"], "category": d["category"]} for d in docs]
-    if req.use_ai and genai_tier.enabled():
+    if ai_ok:
         try:
             return {"answer": genai_tier.answer(req.question, req.lang, req.profile, docs), "sources": sources,
                     "source": "ai"}

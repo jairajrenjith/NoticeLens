@@ -150,6 +150,7 @@ window.LANGS = [
 
 // ---- Planner, charts & "what changed" ----
 Object.assign(window.I18N.en, {
+  email: "Email", email_sent: "Sent to", email_tasks: "Email me my tasks", your_email: "Your email (for summaries & reminders)",
   replaced: "Replaced by update",
   nav_plan: "Planner", kpi_open: "Open tasks", kpi_week: "Due in 7 days", kpi_overdue: "Overdue", kpi_forme: "Notices for you",
   top_tasks: "Top priority tasks", all_tasks: "All tasks", show_all: "Show all ({n})", show_top: "Show top 5",
@@ -160,6 +161,7 @@ Object.assign(window.I18N.en, {
   priority: "Priority", from_notice: "From",
 });
 Object.assign(window.I18N.ml, {
+  email: "ഇമെയിൽ", email_sent: "അയച്ചു:", email_tasks: "ജോലികൾ ഇമെയിൽ ചെയ്യുക", your_email: "നിങ്ങളുടെ ഇമെയിൽ (സംഗ്രഹങ്ങൾക്കും ഓർമ്മപ്പെടുത്തലുകൾക്കും)",
   replaced: "പുതുക്കി",
   nav_plan: "പ്ലാനർ", kpi_open: "ബാക്കി ജോലികൾ", kpi_week: "7 ദിവസത്തിനുള്ളിൽ", kpi_overdue: "സമയം കഴിഞ്ഞവ", kpi_forme: "എനിക്കുള്ള നോട്ടീസുകൾ",
   top_tasks: "ഏറ്റവും പ്രധാന ജോലികൾ", all_tasks: "എല്ലാ ജോലികളും", show_all: "എല്ലാം കാണുക ({n})", show_top: "ആദ്യ 5 മാത്രം",
@@ -170,6 +172,7 @@ Object.assign(window.I18N.ml, {
   priority: "മുൻഗണന", from_notice: "നോട്ടീസ്",
 });
 Object.assign(window.I18N.hi, {
+  email: "ईमेल", email_sent: "भेजा गया:", email_tasks: "मेरे काम ईमेल करें", your_email: "आपका ईमेल (सारांश और रिमाइंडर के लिए)",
   replaced: "अपडेट हुआ",
   nav_plan: "प्लानर", kpi_open: "बाकी काम", kpi_week: "7 दिनों में", kpi_overdue: "समय निकल गया", kpi_forme: "मेरे लिए नोटिस",
   top_tasks: "सबसे ज़रूरी काम", all_tasks: "सभी काम", show_all: "सभी देखें ({n})", show_top: "शीर्ष 5 देखें",
@@ -180,6 +183,7 @@ Object.assign(window.I18N.hi, {
   priority: "प्राथमिकता", from_notice: "नोटिस",
 });
 Object.assign(window.I18N.ta, {
+  email: "மின்னஞ்சல்", email_sent: "அனுப்பப்பட்டது:", email_tasks: "என் பணிகளை மின்னஞ்சல் செய்", your_email: "உங்கள் மின்னஞ்சல் (சுருக்கங்கள் & நினைவூட்டல்களுக்கு)",
   replaced: "புதுப்பிக்கப்பட்டது",
   nav_plan: "திட்டம்", kpi_open: "நிலுவை பணிகள்", kpi_week: "7 நாட்களில்", kpi_overdue: "காலாவதி", kpi_forme: "எனக்கான அறிவிப்புகள்",
   top_tasks: "முன்னுரிமை பணிகள்", all_tasks: "அனைத்து பணிகள்", show_all: "அனைத்தையும் காட்டு ({n})", show_top: "முதல் 5",

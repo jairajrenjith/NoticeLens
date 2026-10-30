@@ -6,3 +6,4 @@ pypdf
 google-genai
 python-multipart
 python-dotenv
+gtts

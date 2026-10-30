@@ -301,6 +301,7 @@
                 <button @click="speak()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition"><span x-text="speaking ? '⏹️' : '🔊'"></span><span x-text="speaking ? t('stop') : t('read_aloud')"></span></button>
                 <button @click="share()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition">💬 <span x-text="t('share')"></span></button>
                 <button @click="addCalendar()" x-show="s.dates?.length" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition">📅 <span x-text="t('add_cal')"></span></button>
+                <button @click="emailSummary()" x-show="health.mail_enabled" :disabled="emailing" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition disabled:opacity-50"><span x-text="emailing ? '⏳' : '📧'"></span> <span x-text="t('email')"></span></button>
                 <button @click="copy()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition">📋 <span x-text="t('copy')"></span></button>
                 <span class="ml-auto text-[11px] text-slate-500" x-text="'⏱️ ' + tf('time_saved', {a: result.stats.original_words, b: result.stats.summary_words, s: result.stats.read_time_saved_s})"></span>
               </div>
@@ -408,7 +409,9 @@
             <div class="lg:col-span-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
               <div class="flex items-center mb-3">
                 <h3 class="font-semibold" x-text="'🎯 ' + (showAllTasks ? t('all_tasks') : t('top_tasks'))"></h3>
-                <button @click="showAllTasks=!showAllTasks" class="ml-auto text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                <button @click="emailDigest()" x-show="health.mail_enabled" :disabled="emailing || !openTasks.length" class="ml-auto mr-3 inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
+                  x-text="(emailing ? '⏳ ' : '📧 ') + t('email_tasks')"></button>
+                <button @click="showAllTasks=!showAllTasks" class=" text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
                   x-text="showAllTasks ? t('show_top') : tf('show_all', {n: allTasks.length})"></button>
               </div>
               <ol class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
@@ -578,6 +581,8 @@
           <div class="grid grid-cols-4 gap-2">
             <template x-for="b in branches"><button @click="profile.branch=b" class="rounded-xl border-2 py-2 text-sm font-semibold transition" :class="profile.branch===b ? 'border-indigo-500 bg-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-400'" x-text="b"></button></template>
           </div>
+          <div class="text-xs font-semibold uppercase text-slate-500 mt-5 mb-2" x-text="'📧 ' + t('your_email')"></div>
+          <input type="email" x-model="profile.email" placeholder="you@gmail.com" class="w-full rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-transparent px-3 py-2 text-sm outline-none focus:border-indigo-500" />
           <div class="flex justify-between mt-6">
             <button @click="step=0" class="text-sm text-slate-500" x-text="'← ' + t('back')"></button>
             <button @click="step=2" class="rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-indigo-700" x-text="t('next') + ' →'"></button>

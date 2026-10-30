@@ -44,5 +44,10 @@ def search(query: str, k: int = 3, exclude_id: str | None = None, min_score: flo
              "text": d["text"]} for s, d in ranked if s >= min_score]
 
 
+def latest(k: int = 5):
+    return [{**{k2: d[k2] for k2 in ("id", "title", "tldr", "category", "dates", "text")}, "score": 0.0}
+            for d in sorted(_docs, key=lambda d: -d.get("ts", 0))[:k]]
+
+
 def count():
     return len(_docs)
