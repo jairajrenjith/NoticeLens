@@ -29,11 +29,62 @@ def client():
     return _client
 
 
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+LAST_PROVIDER = None  # "gemini:<model>" or "groq:<model>" — shown in the pipeline panel
+
+
+def groq_enabled():
+    return bool(os.getenv("GROQ_API_KEY"))
+
+
 def enabled():
-    return client() is not None
+    return client() is not None or groq_enabled()
 
 
 def _gen(prompt, parts=None, json_mode=True):
+    """Gemini first (with its own model chain); on any failure fall back to Groq."""
+    global LAST_PROVIDER
+    err = None
+    if client() is not None:
+        try:
+            out = _gemini(prompt, parts, json_mode)
+            LAST_PROVIDER = f"gemini:{MODEL}"
+            return out
+        except Exception as e:  # noqa: BLE001
+            err = e
+    if groq_enabled():
+        out, model = _groq(prompt, parts, json_mode)
+        LAST_PROVIDER = f"groq:{model}"
+        return out
+    raise err or RuntimeError("No AI provider configured")
+
+
+def _groq(prompt, parts=None, json_mode=True):
+    import base64
+
+    import httpx
+    content, model = prompt, GROQ_MODEL
+    if parts:  # OCR: send the image to Groq's vision model
+        from google.genai import types  # noqa: F401 — parts are google Part objects
+        p = parts[0]
+        blob = getattr(p, "inline_data", None)
+        if blob is None or not (blob.mime_type or "").startswith("image/"):
+            raise RuntimeError("Groq fallback can only read images, not scanned PDFs")
+        content = [{"type": "text", "text": prompt},
+                   {"type": "image_url", "image_url": {"url": f"data:{blob.mime_type};base64,{base64.b64encode(blob.data).decode()}"}}]
+        model = GROQ_VISION_MODEL
+    body = {"model": model, "temperature": 0.2, "messages": [{"role": "user", "content": content}]}
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    r = httpx.post(GROQ_URL, json=body, timeout=40,
+                   headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"})
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"], model
+
+
+def _gemini(prompt, parts=None, json_mode=True):
     from google.genai import types
     cfg = types.GenerateContentConfig(temperature=0.2,
                                       response_mime_type="application/json" if json_mode else "text/plain")
@@ -115,7 +166,7 @@ def summarize(text, lang, profile, rules, ml, related, previous=None):
         previous=f"[{previous['title']}]\n{previous['text'][:5000]}" if previous else "none")
     out = _parse(_gen(prompt))
     out["ms"] = round((time.perf_counter() - t0) * 1000)
-    out["model"] = MODEL
+    out["model"] = LAST_PROVIDER or MODEL
     return out
 
 

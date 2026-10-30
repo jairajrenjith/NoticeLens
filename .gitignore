@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 app/store.json
+app/users.json
+app/sessions.json

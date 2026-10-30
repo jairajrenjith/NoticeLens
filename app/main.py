@@ -5,17 +5,81 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import diff, genai_tier, mailer, ml, rag, rules
+from . import auth, diff, genai_tier, mailer, ml, rag, rules
 from .data import SAMPLES
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="NoticeLens")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+PUBLIC = ("/login", "/static/", "/api/auth/", "/favicon")
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith(PUBLIC) and not auth.user_for(request.cookies.get(auth.COOKIE)):
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Please log in."}, status_code=401)
+        return RedirectResponse("/login")
+    return await call_next(request)
+
+
+class AuthReq(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+def _login_response(email):
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(auth.COOKIE, auth.create_session(email), max_age=auth.TTL, httponly=True, samesite="lax")
+    return resp
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if auth.user_for(request.cookies.get(auth.COOKIE)):
+        return RedirectResponse("/")
+    return FileResponse(STATIC / "login.html")
+
+
+@app.post("/api/auth/register")
+def register(req: AuthReq):
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", req.email.strip()):
+        raise HTTPException(400, "Please enter a valid email address.")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters.")
+    try:
+        auth.register(req.name, req.email, req.password)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return _login_response(req.email)
+
+
+@app.post("/api/auth/login")
+def login(req: AuthReq):
+    if not auth.verify(req.email, req.password):
+        raise HTTPException(401, "Wrong email or password.")
+    return _login_response(req.email)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    auth.destroy(request.cookies.get(auth.COOKIE))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE)
+    return resp
+
+
+@app.get("/api/me")
+def me(request: Request):
+    return auth.user_for(request.cookies.get(auth.COOKIE))
 
 
 class SummarizeReq(BaseModel):
@@ -168,7 +232,8 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ai_enabled": genai_tier.enabled(), "model": genai_tier.MODEL, "store_size": rag.count(),
+    return {"ai_enabled": genai_tier.enabled(), "model": genai_tier.LAST_PROVIDER or genai_tier.MODEL,
+            "providers": [p for p, on in (("gemini", genai_tier.client() is not None), ("groq", genai_tier.groq_enabled())) if on], "store_size": rag.count(),
             "mail_enabled": mailer.enabled(), "mail_default_to": mailer.default_to()}
 
 

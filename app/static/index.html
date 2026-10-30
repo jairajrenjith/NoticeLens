@@ -19,6 +19,8 @@
     @keyframes pd { 50% { opacity: .35; } }
     textarea::placeholder { white-space: pre-line; }
     /* chart roles — validated: series-1 passes all checks on both surfaces */
+    .viz-root { --cat-1:#2a78d6; --cat-2:#eb6834; --cat-3:#1baf7a; --cat-4:#eda100; --cat-5:#e87ba4; --cat-6:#008300; --cat-7:#6250d6; }
+    html.dark .viz-root { --cat-1:#3987e5; --cat-2:#d95926; --cat-3:#199e70; --cat-4:#c98500; --cat-5:#d55181; --cat-6:#008300; --cat-7:#9085e9; }
     .viz-root { --series-1: #2a78d6; --text-muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; --surface: #ffffff; }
     html.dark .viz-root { --series-1: #3987e5; --text-muted: #898781; --grid: #2c2c2a; --axis: #383835; --surface: #0f172a; }
     ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #94a3b855; border-radius: 8px; }
@@ -81,8 +83,12 @@
         <!-- profile -->
         <button @click="onboard=true; step=1" :title="t('profile')"
           class="hidden lg:flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium whitespace-nowrap">
-          🎓 <span x-text="profile.semester ? profile.semester + ' · ' + (profile.branch||'') : t('profile')"></span>
+          🎓 <span class="hidden 2xl:inline" x-text="profile.semester ? profile.semester + ' · ' + (profile.branch||'') : t('profile')"></span>
         </button>
+        <div x-show="user" class="hidden md:flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-1 pr-1 py-1">
+          <div class="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white grid place-items-center text-xs font-bold" :title="user?.email" x-text="(user?.name || '?')[0].toUpperCase()"></div>
+          <button @click="logout()" class="whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" title="Log out">⎋ Logout</button>
+        </div>
         <button @click="onboard=true; step=0" :title="t('help')" class="h-9 w-9 grid place-items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold">?</button>
       </div>
     </div>
@@ -102,7 +108,7 @@
     <!-- ================= SUMMARIZE TAB ================= -->
     <section x-show="tab==='summarize'" class="grid lg:grid-cols-5 gap-6">
       <!-- Input -->
-      <div class="lg:col-span-2 space-y-3">
+      <div class="lg:col-span-2 space-y-3" x-show="!(view==='graph' && result && !loading)">
         <div class="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm transition"
           :class="dragging ? 'border-indigo-500 ring-4 ring-indigo-500/20' : 'border-slate-200 dark:border-slate-800'"
           @dragover.prevent="dragging=true" @dragleave.prevent="dragging=false" @drop.prevent="onDrop($event)">
@@ -147,7 +153,7 @@
       </div>
 
       <!-- Output -->
-      <div class="lg:col-span-3" id="result">
+      <div id="result" :class="view==='graph' && result && !loading ? 'lg:col-span-5' : 'lg:col-span-3'">
         <!-- Loading -->
         <div x-show="loading" class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4 fade-in">
           <template x-for="i in [1,2,3]" :key="i">
@@ -180,7 +186,17 @@
         <!-- Result card -->
         <template x-if="!loading && result">
           <div class="space-y-4 fade-in">
-            <article class="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+            <!-- Card / Graph toggle -->
+            <div class="flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1 w-fit">
+              <button @click="view='card'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition" :class="view==='card' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">📄 Card</button>
+              <button @click="view='graph'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition" :class="view==='graph' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">🕸️ Graph</button>
+            </div>
+            <div x-show="view==='graph'" class="viz-root rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              <svg x-effect="$el.setAttribute('viewBox', `0 0 ${graphData?.W || 960} ${graphData?.H || 600}`)" :style="`aspect-ratio:${graphData?.W || 1100}/${graphData?.H || 600}`" class="w-full h-auto text-slate-700 dark:text-slate-200"
+                role="img" aria-label="Summary graph" x-html="graphSvg" @mousemove="graphHover($event)" @mouseleave="hideTip()"></svg>
+              <p class="text-center text-xs text-slate-400 mt-1">Hover a node to see the full text</p>
+            </div>
+            <article x-show="view==='card'" class="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
               <div class="h-1.5 bg-gradient-to-r" :class="urgencyClasses(s.urgency)"></div>
               <div class="p-5 sm:p-6">
                 <!-- chips -->
@@ -317,7 +333,7 @@
                     <span class="flex items-center gap-1"><svg width="12" height="12" viewBox="-6 -6 12 12"><circle r="4" fill="none" stroke="var(--series-1)" stroke-width="2"/></svg><span x-text="t('event')"></span></span>
                   </div>
                 </div>
-                <svg :viewBox="`0 0 ${timeline.W} ${timeline.H}`" :style="`aspect-ratio:${timeline.W}/${timeline.H}`" class="w-full h-auto text-slate-700 dark:text-slate-300" role="img" :aria-label="t('timeline')" x-html="timelineSvg" @mousemove="timelineHover($event)" @mouseleave="hideTip()"></svg>
+                <svg x-effect="$el.setAttribute('viewBox', `0 0 ${timeline.W} ${timeline.H}`)" :style="`aspect-ratio:${timeline.W}/${timeline.H}`" class="w-full max-w-[760px] h-auto text-slate-700 dark:text-slate-300" role="img" :aria-label="t('timeline')" x-html="timelineSvg" @mousemove="timelineHover($event)" @mouseleave="hideTip()"></svg>
               </div>
             </template>
 
@@ -437,7 +453,7 @@
             <!-- Workload chart -->
             <div class="lg:col-span-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
               <h3 class="font-semibold mb-2" x-text="'📊 ' + t('workload')"></h3>
-              <svg :viewBox="`0 0 ${workload.W} ${workload.H}`" :style="`aspect-ratio:${workload.W}/${workload.H}`" class="w-full h-auto text-slate-700 dark:text-slate-200" role="img" :aria-label="t('workload')" x-html="workloadSvg" @mousemove="workloadHover($event)" @mouseleave="hideTip()"></svg>
+              <svg x-effect="$el.setAttribute('viewBox', `0 0 ${workload.W} ${workload.H}`)" :style="`aspect-ratio:${workload.W}/${workload.H}`" class="w-full h-auto text-slate-700 dark:text-slate-200" role="img" :aria-label="t('workload')" x-html="workloadSvg" @mousemove="workloadHover($event)" @mouseleave="hideTip()"></svg>
             </div>
           </div>
 

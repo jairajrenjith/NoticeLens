@@ -13,12 +13,12 @@ function app() {
     branches: ["CSE", "ECE", "EEE", "ME", "CE", "IE", "AE", "ARCH"],
     lang: LS.get("lang", "en"),
     dark: LS.get("dark", window.matchMedia("(prefers-color-scheme: dark)").matches),
-    profile: { email: "", ...LS.get("profile", { semester: "", branch: "" }) }, emailing: false,
+    profile: { email: "", ...LS.get("profile", { semester: "", branch: "" }) }, emailing: false, user: null,
     onboard: !LS.get("onboarded", false), step: 0,
     tab: "summarize", text: "", loading: false, loadStep: 0, result: null, error: "",
     board: LS.get("board", []), checked: LS.get("checked", {}),
     useAi: LS.get("useAi", true), health: { ai_enabled: false }, samples: [], showSamples: false,
-    showPipeline: false, filter: "all", forMe: false, speaking: false, toastMsg: "", dragging: false,
+    showPipeline: false, view: "card", filter: "all", forMe: false, speaking: false, toastMsg: "", dragging: false,
     askQ: "", chat: [], asking: false, uploading: false, aiFailed: "",
 
     async init() {
@@ -30,6 +30,10 @@ function app() {
       this.$watch("tab", (v) => v === "plan" && this.jumpToNextEvent());
       document.documentElement.lang = this.lang;
       fetch("/api/health").then((r) => r.json()).then((h) => { this.health = h; if (!this.profile.email && h.mail_default_to) this.profile.email = h.mail_default_to; }).catch(() => {});
+      fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((u) => {
+        if (!u) return (location.href = "/login");
+        this.user = u; if (!this.profile.email) this.profile.email = u.email;
+      });
       fetch("/api/samples").then((r) => r.json()).then((s) => (this.samples = s)).catch(() => {});
       window.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && this.tab === "summarize") this.summarize();
@@ -320,6 +324,67 @@ function app() {
       const r = this.timeline.rows[+el.dataset.i];
       this.showTip(e, r.label, [this.fmtDate(r.date) + (r.time ? " · " + r.time : ""), this.countdown(r.date)]);
     },
+    // Mind-map graph of the summary: notice at the centre, one branch per kind of information.
+    get graphData() {
+      const s = this.s, r = this.result; if (!s) return null;
+      const cut = (x, n = 30) => { x = String(x || ""); return x.length > n ? x.slice(0, n - 1) + "…" : x; };
+      const ru = r.tiers?.rules || {}, aud = ru.audience || {};
+      const branches = [
+        { k: "key_points", icon: "💡", items: (s.key_points || []).slice(0, 4) },
+        { k: "actions", icon: "✅", items: (s.actions || []).slice(0, 4).map((a) => (a.deadline ? this.fmtDate(a.deadline) + " · " : "") + a.task) },
+        { k: "dates", icon: "📅", items: (s.dates || []).slice(0, 4).map((d) => this.fmtDate(d.date) + " · " + (d.label || "")) },
+        { k: "money", icon: "💰", items: (ru.amounts || []).slice(0, 4) },
+        { k: "who", icon: "👥", label: this.t("rel_" + (s.relevance?.verdict || "maybe")),
+          items: [...(aud.semesters || []), ...(aud.branches || [])].slice(0, 4).concat(aud.all_students && !(aud.semesters || []).length ? ["All students"] : []) },
+        { k: "changes", icon: "🔁", label: this.t("ai_changes"), items: (s.update?.changes || []).slice(0, 4).map((c) =>
+            (c.kind === "amount" ? c.old + " → " + c.new : (c.old ? this.fmtDate(c.old) + " → " : "+ ") + this.fmtDate(c.new))) },
+        { k: "related", icon: "🔗", items: (r.related || []).slice(0, 3).map((x) => x.title) },
+      ].filter((b) => b.items.length);
+      // Two-column mind map: branches alternate right/left of the root; leaves stack beside their branch.
+      const sides = [[], []]; branches.forEach((b, i) => sides[i % 2].push({ ...b, ci: i }));
+      const H = Math.max(420, Math.max(...sides.map((sd) => sd.reduce((t, b) => t + Math.max(1, b.items.length) * 34 + 26, 0))) + 40);
+      const W = 1100, cx = W / 2, cy = H / 2, nodes = [], edges = [];
+      sides.forEach((sd, side) => {
+        const dir = side === 0 ? 1 : -1, bx = cx + dir * 190;
+        const total = sd.reduce((t, b) => t + Math.max(1, b.items.length) * 34 + 26, 0);
+        let y0 = cy - total / 2;
+        sd.forEach((b) => {
+          const slot = Math.max(1, b.items.length) * 34 + 26, by = y0 + slot / 2; y0 += slot;
+          const color = `var(--cat-${(b.ci % 7) + 1})`;
+          const label = b.label || this.t(b.k === "related" ? "related" : b.k);
+          edges.push({ x1: cx, y1: cy, x2: bx, y2: by, color, w: 3 });
+          nodes.push({ x: bx, y: by, text: b.icon + " " + cut(label, 18), full: label, color, kind: "branch", align: "middle" });
+          b.items.forEach((it, i) => {
+            const ly = by + (i - (b.items.length - 1) / 2) * 34, lx = bx + dir * 100;
+            edges.push({ x1: bx, y1: by, x2: lx, y2: ly, color, w: 1.5 });
+            nodes.push({ x: lx, y: ly, text: cut(it, 34), full: it, color, kind: "leaf", align: dir > 0 ? "start" : "end" });
+          });
+        });
+      });
+      nodes.push({ x: cx, y: cy, text: (s.emoji || "📌") + " " + cut(s.title, 22), full: s.title, color: "var(--series-1)", kind: "root", align: "middle" });
+      return { W, H, nodes, edges };
+    },
+    get graphSvg() {
+      const g = this.graphData; if (!g) return ""; const esc = this.esc;
+      let out = g.edges.map((e) => {
+        const mx = (e.x1 + e.x2) / 2;
+        return `<path d="M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}" fill="none" stroke="${e.color}" stroke-width="${e.w}" opacity=".55" stroke-linecap="round"/>`;
+      }).join("");
+      g.nodes.forEach((n, i) => {
+        const fs = n.kind === "root" ? 15 : n.kind === "branch" ? 13 : 11.5;
+        const w = Math.max(60, [...n.text].length * fs * 0.58 + 24), h = n.kind === "root" ? 44 : n.kind === "branch" ? 34 : 28;
+        const rx0 = n.align === "start" ? n.x : n.align === "end" ? n.x - w : n.x - w / 2;
+        const fill = n.kind === "leaf" ? "var(--surface)" : n.color, tc = n.kind === "leaf" ? "currentColor" : "#fff";
+        out += `<g data-i="${i}" class="cursor-default"><rect x="${rx0}" y="${n.y - h / 2}" width="${w}" height="${h}" rx="${h / 2}"
+          fill="${fill}" stroke="${n.kind === "leaf" ? n.color : "var(--surface)"}" stroke-width="2"/>
+          <text x="${rx0 + w / 2}" y="${n.y + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-weight="${n.kind === "leaf" ? 500 : 700}" fill="${tc}">${esc(n.text)}</text></g>`;
+      });
+      return out;
+    },
+    graphHover(e) {
+      const el = e.target.closest("[data-i]"); if (!el) return this.hideTip();
+      const n = this.graphData.nodes[+el.dataset.i]; this.showTip(e, n.full, []);
+    },
     esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); },
     diamond(cx, cy, r = 6) { return `M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} Z`; },
 
@@ -392,6 +457,8 @@ function app() {
       const kpis = Object.fromEntries(this.kpis.map((k) => [this.t(k.k), k.v]));
       this.sendMail("/api/email/digest", { tasks, kpis });
     },
+
+    async logout() { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/login"; },
 
     // ---------- Onboarding ----------
     finishOnboard(trySample) {

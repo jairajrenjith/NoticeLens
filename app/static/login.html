@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in · NoticeLens</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
+  <script src="/static/vendor/tailwind.js"></script>
+  <script>tailwind.config = { darkMode: "class" };
+    if (JSON.parse(localStorage.getItem("nl_dark") ?? String(matchMedia("(prefers-color-scheme: dark)").matches))) document.documentElement.classList.add("dark");</script>
+  <style>[x-cloak]{display:none!important} .fade-in{animation:f .35s ease both}@keyframes f{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}</style>
+  <script defer src="/static/vendor/alpine.js"></script>
+</head>
+<body x-data="login()" x-cloak class="min-h-screen bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-40 -left-32 h-96 w-96 rounded-full bg-indigo-400/25 blur-3xl dark:bg-indigo-600/20"></div>
+    <div class="absolute bottom-0 -right-32 h-96 w-96 rounded-full bg-fuchsia-400/25 blur-3xl dark:bg-fuchsia-600/15"></div>
+  </div>
+
+  <button @click="toggleDark()" class="fixed top-4 right-4 h-10 w-10 grid place-items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" x-text="dark ? '☀️' : '🌙'"></button>
+
+  <main class="min-h-screen grid lg:grid-cols-2">
+    <!-- Brand panel -->
+    <section class="hidden lg:flex flex-col justify-center px-16 bg-gradient-to-br from-indigo-600 to-fuchsia-600 text-white">
+      <div class="h-14 w-14 rounded-2xl bg-white/20 grid place-items-center text-3xl mb-6">📋</div>
+      <h1 class="text-4xl font-bold leading-tight">Long circulars →<br/>short, clear updates.</h1>
+      <p class="mt-4 text-white/80 max-w-md">NoticeLens reads college notices for you: deadlines, fees and what you must do, in English, മലയാളം, हिन्दी and தமிழ்.</p>
+      <ul class="mt-8 space-y-3 text-white/90">
+        <li>⏳ Deadline countdowns &amp; calendar</li>
+        <li>🔁 Spots what changed from earlier notices</li>
+        <li>🎯 Your top-priority tasks across every notice</li>
+        <li>🔊 Listen · 📧 Email · 💬 Ask questions</li>
+      </ul>
+    </section>
+
+    <!-- Form -->
+    <section class="flex items-center justify-center p-6">
+      <div class="w-full max-w-md fade-in">
+        <div class="lg:hidden flex items-center gap-2 mb-8">
+          <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 grid place-items-center text-white text-xl">📋</div>
+          <span class="text-xl font-bold">NoticeLens</span>
+        </div>
+        <h2 class="text-3xl font-bold tracking-tight" x-text="mode==='login' ? 'Welcome back 👋' : 'Create your account'"></h2>
+        <p class="text-sm text-slate-500 mt-1 mb-6" x-text="mode==='login' ? 'Sign in to see your notices and tasks.' : 'It takes 10 seconds. No spam, promise.'"></p>
+
+        <div class="grid grid-cols-2 rounded-xl bg-slate-100 dark:bg-slate-900 p-1 mb-6">
+          <button @click="mode='login'; error=''" class="rounded-lg py-2 text-sm font-semibold transition" :class="mode==='login' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">Sign in</button>
+          <button @click="mode='register'; error=''" class="rounded-lg py-2 text-sm font-semibold transition" :class="mode==='register' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">Sign up</button>
+        </div>
+
+        <form @submit.prevent="submit()" class="space-y-4">
+          <div x-show="mode==='register'" x-transition>
+            <label class="text-sm font-medium">Full name</label>
+            <input x-model="name" type="text" autocomplete="name" placeholder="Joel Lijo Mathew"
+              class="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">Email</label>
+            <input x-model="email" type="email" required autocomplete="email" placeholder="you@cet.ac.in"
+              class="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">Password</label>
+            <div class="relative mt-1">
+              <input x-model="password" :type="show ? 'text' : 'password'" required minlength="6" :autocomplete="mode==='login' ? 'current-password' : 'new-password'" placeholder="At least 6 characters"
+                class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 pr-12 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+              <button type="button" @click="show=!show" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" x-text="show ? '🙈' : '👁️'" aria-label="Show password"></button>
+            </div>
+          </div>
+
+          <div x-show="error" x-transition class="rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 px-4 py-3 text-sm" x-text="'⚠️ ' + error"></div>
+
+          <button :disabled="busy" class="w-full rounded-xl py-3.5 font-semibold text-white shadow-lg shadow-indigo-500/25 bg-gradient-to-r from-indigo-600 to-fuchsia-600 hover:brightness-110 active:scale-[.99] transition disabled:opacity-50">
+            <span x-text="busy ? 'Please wait…' : (mode==='login' ? 'Sign in →' : 'Create account →')"></span>
+          </button>
+        </form>
+
+        <p class="text-center text-sm text-slate-500 mt-6">
+          <span x-text="mode==='login' ? 'New here?' : 'Already have an account?'"></span>
+          <button @click="mode = mode==='login' ? 'register' : 'login'; error=''" class="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline" x-text="mode==='login' ? 'Create an account' : 'Sign in'"></button>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function login() {
+      return {
+        mode: "login", name: "", email: "", password: "", show: false, busy: false, error: "",
+        dark: document.documentElement.classList.contains("dark"),
+        toggleDark() { this.dark = !this.dark; document.documentElement.classList.toggle("dark", this.dark); localStorage.setItem("nl_dark", this.dark); },
+        async submit() {
+          this.busy = true; this.error = "";
+          try {
+            const res = await fetch("/api/auth/" + this.mode, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: this.name, email: this.email, password: this.password }) });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || "Something went wrong");
+            if (this.mode === "register") localStorage.removeItem("nl_onboarded"); // new users get the tour
+            location.href = "/";
+          } catch (e) { this.error = e.message; } finally { this.busy = false; }
+        },
+      };
+    }
+  </script>
+</body>
+</html>
