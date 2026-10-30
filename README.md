@@ -2,6 +2,12 @@
 
 Turns long, formal college circulars into short, student-friendly updates — in **English, മലയാളം, हिन्दी, தமிழ்**.
 
+## Team Members: 
+  1. Abhijith S Unni (Leader)
+  2. Joel Lijo Mathew
+  3. Ajo Jose
+  4. Jairaj R
+
 ## Run
 ```bash
 echo "GEMINI_API_KEY=your_key_here" > .env   # optional — app works offline without it
