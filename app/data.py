@@ -85,6 +85,29 @@ IEEE SB CET""",
     },
 ]
 
+SAMPLES.insert(1, {
+    "id": "fee_revised",
+    "label": "🔁 Fee notice — REVISED",
+    "seed": False,  # not pre-loaded, so the app detects it as an update of the fee notice
+    "text": """COLLEGE OF ENGINEERING TRIVANDRUM
+Office of the Principal
+No. ACD/F2/4502/2026                                                   Date: 30/10/2026
+
+CORRIGENDUM
+
+Sub: Extension of last date for remittance of semester fee for S3 and S5 B.Tech students – reg.
+Ref: Circular No. ACD/F2/4471/2026 dated 28/10/2026
+
+Dear Students,
+
+In partial modification of the circular cited above, and owing to technical issues in the online fee portal, the last date for payment of fee without fine is extended to 7th November 2026. The fine for late remittance has been reduced to Rs. 250/- and the final date for remittance with fine is 14 November 2026.
+
+Students availing fee concession / e-grantz are directed to submit the copy of the approval letter at the Academic Section on or before 7th November 2026. All other conditions mentioned in the earlier circular remain unchanged.
+
+Registrar
+College of Engineering Trivandrum""",
+})
+
 # Seed training data: (text, label). Small but enough for a TF-IDF + LogReg demo classifier.
 TRAIN = [
     ("remit the semester tuition fee through the online portal before the last date", "fee"),

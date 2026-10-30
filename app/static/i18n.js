@@ -147,3 +147,45 @@ window.LANGS = [
   { code: "hi", name: "Hindi", native: "हिन्दी", speech: "hi-IN" },
   { code: "ta", name: "Tamil", native: "தமிழ்", speech: "ta-IN" },
 ];
+
+// ---- Planner, charts & "what changed" ----
+Object.assign(window.I18N.en, {
+  replaced: "Replaced by update",
+  nav_plan: "Planner", kpi_open: "Open tasks", kpi_week: "Due in 7 days", kpi_overdue: "Overdue", kpi_forme: "Notices for you",
+  top_tasks: "Top priority tasks", all_tasks: "All tasks", show_all: "Show all ({n})", show_top: "Show top 5",
+  workload: "Tasks due · next 14 days", tasks_n: "{n} tasks", calendar: "Deadline calendar", no_events: "Nothing due this day",
+  timeline: "Task timeline", deadline: "Deadline", event: "Event", today_lbl: "Today", no_date: "No date",
+  updates: "Updates an earlier notice", moved: "Moved", new_date: "New date", amount_changed: "Amount changed", ai_changes: "What changed",
+  load_samples: "Load sample notices", plan_empty: "Summarize a few notices to see your tasks, calendar and workload here.",
+  priority: "Priority", from_notice: "From",
+});
+Object.assign(window.I18N.ml, {
+  replaced: "പുതുക്കി",
+  nav_plan: "പ്ലാനർ", kpi_open: "ബാക്കി ജോലികൾ", kpi_week: "7 ദിവസത്തിനുള്ളിൽ", kpi_overdue: "സമയം കഴിഞ്ഞവ", kpi_forme: "എനിക്കുള്ള നോട്ടീസുകൾ",
+  top_tasks: "ഏറ്റവും പ്രധാന ജോലികൾ", all_tasks: "എല്ലാ ജോലികളും", show_all: "എല്ലാം കാണുക ({n})", show_top: "ആദ്യ 5 മാത്രം",
+  workload: "ജോലികൾ · അടുത്ത 14 ദിവസം", tasks_n: "{n} ജോലികൾ", calendar: "അവസാന തീയതി കലണ്ടർ", no_events: "ഈ ദിവസം ഒന്നുമില്ല",
+  timeline: "ജോലി ടൈംലൈൻ", deadline: "അവസാന തീയതി", event: "പരിപാടി", today_lbl: "ഇന്ന്", no_date: "തീയതിയില്ല",
+  updates: "മുൻ നോട്ടീസിന്റെ പുതുക്കൽ", moved: "മാറ്റി", new_date: "പുതിയ തീയതി", amount_changed: "തുക മാറി", ai_changes: "എന്താണ് മാറിയത്",
+  load_samples: "സാമ്പിൾ നോട്ടീസുകൾ ലോഡ് ചെയ്യുക", plan_empty: "ജോലികൾ, കലണ്ടർ, വർക്ക്‌ലോഡ് കാണാൻ കുറച്ച് നോട്ടീസുകൾ സംഗ്രഹിക്കുക.",
+  priority: "മുൻഗണന", from_notice: "നോട്ടീസ്",
+});
+Object.assign(window.I18N.hi, {
+  replaced: "अपडेट हुआ",
+  nav_plan: "प्लानर", kpi_open: "बाकी काम", kpi_week: "7 दिनों में", kpi_overdue: "समय निकल गया", kpi_forme: "मेरे लिए नोटिस",
+  top_tasks: "सबसे ज़रूरी काम", all_tasks: "सभी काम", show_all: "सभी देखें ({n})", show_top: "शीर्ष 5 देखें",
+  workload: "काम · अगले 14 दिन", tasks_n: "{n} काम", calendar: "अंतिम तिथि कैलेंडर", no_events: "इस दिन कुछ नहीं",
+  timeline: "काम की टाइमलाइन", deadline: "अंतिम तिथि", event: "कार्यक्रम", today_lbl: "आज", no_date: "तिथि नहीं",
+  updates: "पिछले नोटिस का अपडेट", moved: "बदली गई", new_date: "नई तिथि", amount_changed: "राशि बदली", ai_changes: "क्या बदला",
+  load_samples: "नमूना नोटिस लोड करें", plan_empty: "अपने काम, कैलेंडर और वर्कलोड देखने के लिए कुछ नोटिस सारांशित करें।",
+  priority: "प्राथमिकता", from_notice: "नोटिस",
+});
+Object.assign(window.I18N.ta, {
+  replaced: "புதுப்பிக்கப்பட்டது",
+  nav_plan: "திட்டம்", kpi_open: "நிலுவை பணிகள்", kpi_week: "7 நாட்களில்", kpi_overdue: "காலாவதி", kpi_forme: "எனக்கான அறிவிப்புகள்",
+  top_tasks: "முன்னுரிமை பணிகள்", all_tasks: "அனைத்து பணிகள்", show_all: "அனைத்தையும் காட்டு ({n})", show_top: "முதல் 5",
+  workload: "பணிகள் · அடுத்த 14 நாட்கள்", tasks_n: "{n} பணிகள்", calendar: "கடைசி தேதி நாட்காட்டி", no_events: "இந்த நாளில் எதுவும் இல்லை",
+  timeline: "பணி காலவரிசை", deadline: "கடைசி தேதி", event: "நிகழ்வு", today_lbl: "இன்று", no_date: "தேதி இல்லை",
+  updates: "முந்தைய அறிவிப்பின் புதுப்பிப்பு", moved: "மாற்றப்பட்டது", new_date: "புதிய தேதி", amount_changed: "தொகை மாறியது", ai_changes: "என்ன மாறியது",
+  load_samples: "மாதிரி அறிவிப்புகளை ஏற்று", plan_empty: "பணிகள், நாட்காட்டி, பணிச்சுமை காண சில அறிவிப்புகளை சுருக்கவும்.",
+  priority: "முன்னுரிமை", from_notice: "அறிவிப்பு",
+});

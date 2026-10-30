@@ -94,7 +94,7 @@ def tidy(sent: str) -> str:
     return sent[:1].upper() + sent[1:]
 
 
-def _context(text, start, end, width=140):
+def _context(text, start, end, width=240):
     """The sentence that contains the match (bounded), with polite preambles removed."""
     bounds = [m.end() for m in re.finditer(r"(?<!\bRs)(?<!\bNo)[.!?]\s+|\n", text[:start])]
     s = max(bounds[-1] if bounds else 0, start - width)
@@ -221,6 +221,8 @@ def run(raw_text: str, profile: dict | None = None):
         "deadlines": [d for d in dates if d["is_deadline"]],
         "times": list(dict.fromkeys(m.strip() for m in TIME_RE.findall(text)))[:6],
         "amounts": ["₹" + a for a in dict.fromkeys(AMOUNT_RE.findall(text))],
+        "amount_details": [{"amount": "₹" + m.group(1), "context": _context(text, m.start(), m.end())}
+                           for m in AMOUNT_RE.finditer(text)],
         "venues": list(dict.fromkeys(venues))[:4],
         "links": list(dict.fromkeys(URL_RE.findall(raw_text)))[:5],
         "emails": list(dict.fromkeys(EMAIL_RE.findall(raw_text)))[:3],

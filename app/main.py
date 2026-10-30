@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import genai_tier, ml, rag, rules
+from . import diff, genai_tier, ml, rag, rules
 from .data import SAMPLES
 
 STATIC = Path(__file__).parent / "static"
@@ -40,7 +40,7 @@ def offline_title(clean_text, raw):
     m = re.search(r"^\s*(?:sub(?:ject)?|re)\s*[:.\-]\s*(.+)$", raw, re.I | re.M)
     if m:
         t = re.sub(r"\s*[–-]\s*reg\.?$", "", m.group(1).strip(), flags=re.I)
-        return t[:80]
+        return t if len(t) <= 90 else t[:90].rsplit(" ", 1)[0] + "…"
     for line in clean_text.split("\n")[:4]:
         line = line.strip()
         if 2 <= len(line.split()) <= 9 and line.upper() != line and not line.endswith(".") and not re.search(r"\d{2}/\d{2}", line):
@@ -72,6 +72,7 @@ def merge(r, m, ai, raw):
             "relevance": ai.get("relevant_to_you") or r["relevance"],
             "penalty": ai.get("penalty"),
             "related_note": ai.get("related_note"),
+            "ai_changes": ai.get("changes") or [],
         }
     title = offline_title(r["clean_text"], raw)
     title = title[:1].upper() + title[1:]
@@ -99,18 +100,29 @@ def pipeline(text, lang="en", profile=None, use_ai=True, store=True):
     t0 = time.perf_counter()
     related = rag.search(r["clean_text"], k=3, exclude_id=did)
     rag_ms = round((time.perf_counter() - t0) * 1000, 1)
+    previous, update = None, None
+    if related and diff.is_update(r["clean_text"], related[0]["score"]):
+        previous = related[0]
+        update = {"of": {k: previous[k] for k in ("id", "title", "category", "score")},
+                  "changes": diff.compare(previous.get("facts", {}), r)}
     ai, ai_error = None, None
     if use_ai and genai_tier.enabled():
         try:
-            ai = genai_tier.summarize(r["clean_text"], lang, profile, r, m, related)
+            ai = genai_tier.summarize(r["clean_text"], lang, profile, r, m, related, previous)
         except Exception as e:  # noqa: BLE001 — any AI failure falls back to tiers 1+2
             ai_error = f"{type(e).__name__}: {str(e)[:200]}"
     elif use_ai:
         ai_error = "No GEMINI_API_KEY configured"
     summary = merge(r, m, ai, text)
+    if update:
+        update["ai_changes"] = summary.pop("ai_changes", [])
+    summary.pop("ai_changes", None)
+    summary["update"] = update
     if store:
+        facts = {"dates": [{"date": d["date"], "label": d["context"], "is_deadline": d["is_deadline"]}
+                           for d in r["dates"]], "amounts": r["amount_details"]}
         rag.add(did, r["clean_text"], summary["title"], summary["tldr"], summary["category"],
-                [d["date"] for d in summary["dates"]])
+                [d["date"] for d in summary["dates"]], facts)
     summary_words = len((summary["tldr"] + " " + " ".join(summary["key_points"])).split())
     return {
         "id": did, "lang": lang, "summary": summary,
@@ -129,7 +141,8 @@ def pipeline(text, lang="en", profile=None, use_ai=True, store=True):
 @app.on_event("startup")
 def seed():
     for s in SAMPLES:  # seed the RAG store so 'Ask' and 'related' work from the first click
-        pipeline(s["text"], use_ai=False)
+        if s.get("seed", True):
+            pipeline(s["text"], use_ai=False)
 
 
 @app.get("/")

@@ -28,6 +28,9 @@ echo "GEMINI_API_KEY=your_key_here" > .env   # optional — app works offline wi
 - 🔊 Read aloud in your language · 📅 Add to calendar (.ics with 1-day reminder) · 💬 WhatsApp share · 📋 Copy
 - 🗂️ My Board — all notices sorted by nearest deadline, category filters, "only for me"
 - 💬 Ask the notice board — RAG Q&A over every circular, with citations
+- 🔁 **What changed** — a new notice is matched (RAG) against earlier ones; moved deadlines, new dates and changed amounts are diffed (`app/diff.py`), plus an AI-written change list. The old notice is marked "Replaced" and drops out of the planner
+- 📈 **Task timeline** chart per notice (today → each deadline/event)
+- 📊 **Planner** — KPI tiles, top-5 priority tasks across all notices (urgency × days left × relevance), 14-day workload chart, deadline calendar
 - 🌙/☀️ Dark & light mode, first-time onboarding (language → semester/branch → try sample)
 - "How we summarized this" panel shows each tier's output + timing
 - Works with no internet (Tailwind/Alpine bundled locally; AI toggle shows the fallback)
@@ -38,4 +41,6 @@ echo "GEMINI_API_KEY=your_key_here" > .env   # optional — app works offline wi
 3. Open "How we summarized this" → show the three tiers + timings.
 4. Toggle **AI off** → summarize again → still works (Rules + ML). "That's why we built 3 tiers."
 5. Try the placement sample → "🚫 Not for you — meant for S7".
-6. My Board → sorted by deadline. Ask → "When is the fee deadline?" → answer with citation.
+6. Try "🔁 Fee notice — REVISED" → "Updates an earlier notice": 3 Nov → 7 Nov, ₹500 → ₹250.
+7. Planner → top priority tasks, workload chart (hover a bar), calendar → old fee deadlines are gone.
+8. Ask → "When is the fee deadline?" → answer with citation.

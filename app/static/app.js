@@ -19,14 +19,15 @@ function app() {
     board: LS.get("board", []), checked: LS.get("checked", {}),
     useAi: LS.get("useAi", true), health: { ai_enabled: false }, samples: [], showSamples: false,
     showPipeline: false, filter: "all", forMe: false, speaking: false, toastMsg: "", dragging: false,
-    askQ: "", chat: [], asking: false, uploading: false,
+    askQ: "", chat: [], asking: false, uploading: false, aiFailed: "",
 
     async init() {
       this.applyTheme();
       this.$watch("lang", (v) => { LS.set("lang", v); document.documentElement.lang = v; this.onLangChange(); });
       this.$watch("dark", (v) => { LS.set("dark", v); this.applyTheme(); });
       this.$watch("profile", (v) => LS.set("profile", v), { deep: true });
-      this.$watch("useAi", (v) => LS.set("useAi", v));
+      this.$watch("useAi", (v) => { LS.set("useAi", v); if (!v) this.aiFailed = ""; });
+      this.$watch("tab", (v) => v === "plan" && this.jumpToNextEvent());
       document.documentElement.lang = this.lang;
       fetch("/api/health").then((r) => r.json()).then((h) => (this.health = h)).catch(() => {});
       fetch("/api/samples").then((r) => r.json()).then((s) => (this.samples = s)).catch(() => {});
@@ -56,6 +57,8 @@ function app() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || this.t("error"));
         this.result = data; this.saveToBoard(text, data);
+        this.aiFailed = this.useAi && this.health.ai_enabled ? (data.tiers.ai_error || "") : "";
+        if (this.aiFailed) this.toast("⚠ AI tier failed — showing Rules + ML summary");
         this.$nextTick(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }));
       } catch (e) { this.error = e.message || this.t("error"); }
       finally { timers.forEach(clearTimeout); this.loading = false; this.loadStep = 0; }
@@ -71,6 +74,9 @@ function app() {
       let item = this.board.find((b) => b.id === data.id);
       if (!item) { item = { id: data.id, text, created: Date.now(), views: {} }; this.board.unshift(item); }
       item.views[data.lang] = data;
+      // A revised notice supersedes the earlier one: its old deadlines leave the planner & calendar.
+      const old = data.summary.update && this.board.find((b) => b.id === data.summary.update.of.id);
+      if (old) old.supersededBy = { id: data.id, title: data.summary.title };
       this.board = this.board.slice(0, 40); LS.set("board", this.board);
     },
     loadSample(s) { this.showSamples = false; this.text = s.text; this.summarize(); },
@@ -171,7 +177,7 @@ function app() {
         .sort((a, b) => {
           const r = { high: 0, medium: 1, low: 2 }; const ua = r[a.v.summary.urgency] ?? 3, ub = r[b.v.summary.urgency] ?? 3;
           const da = this.nextDeadline(a.v.summary)?.date || "9999", db = this.nextDeadline(b.v.summary)?.date || "9999";
-          return da.localeCompare(db) || ua - ub;
+          return (!!a.supersededBy - !!b.supersededBy) || da.localeCompare(db) || ua - ub;
         });
     },
     openItem(b) { this.result = b.v; this.text = b.text; this.tab = "summarize"; window.scrollTo({ top: 0, behavior: "smooth" }); },
@@ -188,6 +194,170 @@ function app() {
         this.chat.push({ role: "bot", text: d.answer || this.t("no_answer"), sources: d.sources || [], source: d.source });
       } catch { this.chat.push({ role: "bot", text: this.t("error"), sources: [] }); }
       finally { this.asking = false; this.$nextTick(() => document.getElementById("chatEnd")?.scrollIntoView({ behavior: "smooth" })); }
+    },
+
+    // ---------- Planner: tasks across all notices ----------
+    calMonth: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })(),
+    calSel: null, showAllTasks: false, tip: { show: false, x: 0, y: 0, title: "", lines: [] }, loadingSamples: false,
+
+    get allTasks() {
+      const W = { high: 3, medium: 2, low: 1 }, R = { yes: 8, maybe: 0, no: -25 };
+      const out = [];
+      for (const b of this.board) {
+        const v = this.viewOf(b); if (!v || b.supersededBy) continue;
+        const s = v.summary, nd = this.nextDeadline(s)?.date || null;
+        const acts = s.actions?.length ? s.actions
+          : (s.dates || []).filter((d) => d.is_deadline).map((d) => ({ task: d.label, deadline: d.date }));
+        acts.forEach((a, i) => {
+          const key = v.id + "-" + i, date = a.deadline || nd, days = date ? this.daysLeft(date) : null;
+          const score = (W[s.urgency] || 1) * 10 + (date ? (days < 0 ? -40 : Math.max(0, 21 - days) * 3) : 0) + (R[s.relevance?.verdict] ?? 0);
+          out.push({ key, task: a.task, date, days, score, done: !!this.checked[key], item: b, title: s.title, emoji: s.emoji,
+            category: s.category, urgency: s.urgency, rel: s.relevance?.verdict });
+        });
+      }
+      return out.sort((a, b) => b.score - a.score);
+    },
+    get openTasks() { return this.allTasks.filter((t) => !t.done && (t.days === null || t.days >= 0)); },
+    get visibleTasks() { return this.showAllTasks ? this.allTasks : this.openTasks.slice(0, 5); },
+    get kpis() {
+      const open = this.openTasks;
+      return [
+        { k: "kpi_open", v: open.length, icon: "📋" },
+        { k: "kpi_week", v: open.filter((t) => t.days !== null && t.days <= 7).length, icon: "⏳" },
+        { k: "kpi_overdue", v: this.allTasks.filter((t) => !t.done && t.days !== null && t.days < 0).length, icon: "⚠️" },
+        { k: "kpi_forme", v: this.board.filter((b) => this.viewOf(b)?.summary.relevance?.verdict === "yes").length, icon: "👤" },
+      ];
+    },
+    taskWhen(t) { return t.date ? this.countdown(t.date) + " · " + this.fmtDate(t.date) : this.t("no_date"); },
+
+    // Workload column chart (single series, next 14 days)
+    get workload() {
+      const days = [], base = new Date(); base.setHours(0, 0, 0, 0);
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(base); d.setDate(base.getDate() + i);
+        const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const tasks = this.allTasks.filter((t) => t.date === iso && !t.done);
+        days.push({ iso, i, d, tasks, n: tasks.length });
+      }
+      const max = Math.max(1, ...days.map((d) => d.n));
+      const W = 640, H = 190, L = 30, Rr = 8, T = 18, B = 34, pw = W - L - Rr, ph = H - T - B, band = pw / 14, bw = Math.min(26, band * 0.62);
+      const y = (v) => T + ph - (v / max) * ph;
+      const ticks = [...new Set([0, Math.ceil(max / 2), max])];
+      const peak = days.reduce((a, b) => (b.n > a.n ? b : a), days[0]);
+      return { W, H, L, T, B, ph, band, bw, max, ticks, y, peak, base: T + ph,
+        bars: days.map((d) => ({ ...d, x: L + d.i * band + (band - bw) / 2, hx: L + d.i * band, h: (d.n / max) * ph,
+          label: d.i === 0 ? this.t("today_lbl") : d.i % 2 === 0 ? String(d.d.getDate()) : "" })) };
+    },
+    barPath(x, base, w, h) {
+      if (h <= 0) return ""; const r = Math.min(4, h, w / 2), y = base - h;
+      return `M${x},${base} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${base} Z`;
+    },
+
+    // Per-notice task timeline
+    get timeline() {
+      const s = this.s; if (!s) return null;
+      const rows = (s.dates || []).filter((d) => d.date).slice().sort((a, b) => a.date.localeCompare(b.date));
+      if (!rows.length) return null;
+      const toT = (iso) => new Date(iso + "T00:00:00").getTime(), today = new Date(); today.setHours(0, 0, 0, 0);
+      const t0 = Math.min(today.getTime(), toT(rows[0].date)) - 86400000, t1 = Math.max(today.getTime(), toT(rows[rows.length - 1].date)) + 2 * 86400000;
+      const W = 640, L = 190, Rr = 70, T = 26, rowH = 34, H = T + rows.length * rowH + 8;
+      const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - Rr);
+      const tx = x(today.getTime());
+      return { W, H, T, L, tx, rows: rows.map((d, i) => {
+        const dx = x(toT(d.date)), past = this.daysLeft(d.date) < 0;
+        return { ...d, i, cy: T + i * rowH + rowH / 2, dx, past, short: (d.label || "").length > 30 ? d.label.slice(0, 29) + "…" : d.label || "" };
+      }) };
+    },
+    // SVG markup is built as strings: Alpine's x-for can't clone <template> inside <svg>.
+    get workloadSvg() {
+      const w = this.workload, esc = this.esc;
+      let g = w.ticks.map((tv) => `<line x1="${w.L}" x2="${w.W - 8}" y1="${w.y(tv)}" y2="${w.y(tv)}" stroke="var(${tv === 0 ? "--axis" : "--grid"})" stroke-width="1"/>`
+        + `<text x="${w.L - 8}" y="${w.y(tv) + 4}" text-anchor="end" font-size="11" fill="var(--text-muted)">${tv}</text>`).join("");
+      for (const b of w.bars) {
+        const cx = b.x + w.bw / 2;
+        g += `<g data-i="${b.i}"><rect x="${b.hx}" y="${w.T}" width="${w.band}" height="${w.ph}" fill="transparent"/>`
+          + (b.h > 0 ? `<path d="${this.barPath(b.x, w.base, w.bw, b.h)}" fill="var(--series-1)"/>` : "")
+          + (b.n && b.iso === w.peak.iso ? `<text x="${cx}" y="${w.base - b.h - 6}" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">${b.n}</text>` : "")
+          + `<text x="${cx}" y="${w.base + 18}" text-anchor="middle" font-size="11" font-weight="${b.i === 0 ? 700 : 400}" fill="var(--text-muted)">${esc(b.label)}</text></g>`;
+      }
+      return g;
+    },
+    workloadHover(e) {
+      const el = e.target.closest("[data-i]"); if (!el) return this.hideTip();
+      const b = this.workload.bars[+el.dataset.i];
+      this.showTip(e, this.fmtDate(b.iso) + " · " + this.tf("tasks_n", { n: b.n }), b.tasks.map((x) => "• " + (x.task.length > 60 ? x.task.slice(0, 59) + "…" : x.task)));
+    },
+    get timelineSvg() {
+      const tl = this.timeline; if (!tl) return ""; const esc = this.esc;
+      let g = tl.rows.map((r) => `<line x1="${tl.L}" x2="${tl.W - 70}" y1="${r.cy}" y2="${r.cy}" stroke="var(--grid)" stroke-width="1"/>`).join("");
+      g += `<line x1="${tl.tx}" x2="${tl.tx}" y1="${tl.T - 8}" y2="${tl.H - 4}" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="3 3"/>`
+        + `<text x="${tl.tx}" y="${tl.T - 12}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text-muted)">${esc(this.t("today_lbl"))}</text>`;
+      for (const r of tl.rows) {
+        const col = r.past ? "var(--text-muted)" : "var(--series-1)";
+        g += `<g data-i="${r.i}"><rect x="0" y="${r.cy - 17}" width="${tl.W}" height="34" fill="transparent"/>`
+          + `<text x="0" y="${r.cy + 4}" font-size="12" fill="currentColor">${esc(r.short)}</text>`
+          + (r.past ? "" : `<line x1="${Math.min(tl.tx, r.dx)}" x2="${Math.max(tl.tx, r.dx)}" y1="${r.cy}" y2="${r.cy}" stroke="var(--series-1)" stroke-width="2" stroke-linecap="round" opacity=".55"/>`)
+          + (r.is_deadline ? `<path d="${this.diamond(r.dx, r.cy, 7)}" fill="${col}" stroke="var(--surface)" stroke-width="2"/>`
+            : `<circle cx="${r.dx}" cy="${r.cy}" r="5" fill="var(--surface)" stroke="${col}" stroke-width="2"/>`)
+          + `<text x="${r.dx + 12}" y="${r.cy + 4}" font-size="11" fill="var(--text-muted)">${esc(this.fmtDate(r.date).replace(/^[^ ]+ /, ""))}</text></g>`;
+      }
+      return g;
+    },
+    timelineHover(e) {
+      const el = e.target.closest("[data-i]"); if (!el) return this.hideTip();
+      const r = this.timeline.rows[+el.dataset.i];
+      this.showTip(e, r.label, [this.fmtDate(r.date) + (r.time ? " · " + r.time : ""), this.countdown(r.date)]);
+    },
+    esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); },
+    diamond(cx, cy, r = 6) { return `M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} Z`; },
+
+    // Calendar
+    get calTitle() { return new Intl.DateTimeFormat(LOCALE[this.lang], { month: "long", year: "numeric" }).format(this.calMonth); },
+    get weekdays() {
+      const f = new Intl.DateTimeFormat(LOCALE[this.lang], { weekday: "short" });
+      return [...Array(7)].map((_, i) => f.format(new Date(2026, 10, 2 + i))); // Mon..Sun
+    },
+    get calEvents() {
+      const ev = {};
+      for (const b of this.board) {
+        const v = this.viewOf(b); if (!v || b.supersededBy) continue;
+        for (const d of v.summary.dates || []) {
+          if (!d.date) continue;
+          (ev[d.date] ||= []).push({ ...d, title: v.summary.title, emoji: v.summary.emoji, item: b });
+        }
+      }
+      return ev;
+    },
+    get calCells() {
+      const m = this.calMonth, first = (m.getDay() + 6) % 7, start = new Date(m); start.setDate(1 - first);
+      const ev = this.calEvents, todayIso = this.isoOf(new Date());
+      return [...Array(42)].map((_, i) => {
+        const d = new Date(start); d.setDate(start.getDate() + i); const iso = this.isoOf(d);
+        return { iso, day: d.getDate(), inMonth: d.getMonth() === m.getMonth(), today: iso === todayIso, events: ev[iso] || [] };
+      });
+    },
+    isoOf(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
+    jumpToNextEvent() {
+      // Open the calendar on the month of the next upcoming deadline/event.
+      const today = this.isoOf(new Date());
+      const next = Object.keys(this.calEvents).filter((d) => d >= today).sort()[0];
+      if (next) { const [y, m] = next.split("-").map(Number); this.calMonth = new Date(y, m - 1, 1); this.calSel = next; }
+    },
+    shiftMonth(n) { this.calMonth = new Date(this.calMonth.getFullYear(), this.calMonth.getMonth() + n, 1); },
+
+    showTip(e, title, lines) { this.tip = { show: true, x: e.clientX, y: e.clientY, title, lines }; },
+    hideTip() { this.tip.show = false; },
+
+    async loadAllSamples() {
+      this.loadingSamples = true;
+      for (const s of this.samples.filter((x) => x.id !== "fee_revised")) {
+        try {
+          const res = await fetch("/api/summarize", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: s.text, lang: this.lang, profile: this.profile, use_ai: this.useAi }) });
+          if (res.ok) this.saveToBoard(s.text, await res.json());
+        } catch {}
+      }
+      this.loadingSamples = false;
     },
 
     // ---------- Onboarding ----------

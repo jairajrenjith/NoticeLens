@@ -18,6 +18,9 @@
     .pulse-dot { animation: pd 1.2s infinite; }
     @keyframes pd { 50% { opacity: .35; } }
     textarea::placeholder { white-space: pre-line; }
+    /* chart roles — validated: series-1 passes all checks on both surfaces */
+    .viz-root { --series-1: #2a78d6; --text-muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; --surface: #ffffff; }
+    html.dark .viz-root { --series-1: #3987e5; --text-muted: #898781; --grid: #2c2c2a; --axis: #383835; --surface: #0f172a; }
     ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #94a3b855; border-radius: 8px; }
   </style>
   <script src="/static/i18n.js"></script>
@@ -46,7 +49,7 @@
       </div>
 
       <nav class="ml-4 hidden md:flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
-        <template x-for="n in [['summarize','✨'],['board','🗂️'],['ask','💬']]" :key="n[0]">
+        <template x-for="n in [['summarize','✨'],['plan','📊'],['board','🗂️'],['ask','💬']]" :key="n[0]">
           <button @click="tab=n[0]" class="px-3 py-1.5 rounded-lg text-sm font-medium transition whitespace-nowrap"
             :class="tab===n[0] ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
             <span x-text="n[1]"></span> <span x-text="t('nav_'+n[0])"></span>
@@ -57,11 +60,11 @@
 
       <div class="ml-auto flex items-center gap-2">
         <!-- AI status pill -->
-        <button @click="useAi=!useAi" :title="t('use_ai')"
+        <button @click="useAi=!useAi" :title="aiFailed || t('use_ai')"
           class="hidden sm:flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition whitespace-nowrap"
-          :class="aiActive ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'">
-          <span class="h-2 w-2 rounded-full" :class="aiActive ? 'bg-emerald-500 pulse-dot' : 'bg-slate-400'"></span>
-          <span x-text="aiActive ? t('ai_on') : t('ai_off')"></span>
+          :class="aiFailed ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : aiActive ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'">
+          <span class="h-2 w-2 rounded-full" :class="aiFailed ? 'bg-amber-500' : aiActive ? 'bg-emerald-500 pulse-dot' : 'bg-slate-400'"></span>
+          <span x-text="aiFailed ? '⚠ AI error' : aiActive ? t('ai_on') : t('ai_off')"></span>
         </button>
         <!-- language -->
         <div class="relative">
@@ -86,8 +89,8 @@
   </header>
 
   <!-- mobile nav -->
-  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 glass bg-white/80 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3">
-    <template x-for="n in [['summarize','✨'],['board','🗂️'],['ask','💬']]" :key="n[0]">
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 glass bg-white/80 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 grid grid-cols-4">
+    <template x-for="n in [['summarize','✨'],['plan','📊'],['board','🗂️'],['ask','💬']]" :key="n[0]">
       <button @click="tab=n[0]" class="py-2.5 text-xs font-medium flex flex-col items-center gap-0.5" :class="tab===n[0] ? 'text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">
         <span class="text-lg" x-text="n[1]"></span><span x-text="t('nav_'+n[0])"></span>
       </button>
@@ -192,6 +195,37 @@
 
                 <h2 class="text-2xl font-bold tracking-tight flex items-start gap-2"><span x-text="s.emoji"></span><span x-text="s.title"></span></h2>
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" x-show="s.relevance?.reason" x-text="s.relevance?.reason"></p>
+                <!-- What changed vs an earlier notice -->
+                <template x-if="s.update">
+                  <div class="mt-4 rounded-xl border-2 border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-500/10 p-4">
+                    <div class="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                      🔁 <span x-text="t('updates')"></span>
+                      <span class="ml-auto text-[11px] font-medium rounded-full bg-white dark:bg-slate-900 px-2 py-0.5" x-text="Math.round(s.update.of.score*100) + '% match'"></span>
+                    </div>
+                    <div class="text-xs text-slate-600 dark:text-slate-400 mt-0.5 mb-3" x-text="'↳ ' + s.update.of.title"></div>
+                    <div class="space-y-2">
+                      <template x-for="(c,i) in s.update.changes" :key="i">
+                        <div class="flex items-start gap-3 rounded-lg bg-white dark:bg-slate-900 px-3 py-2">
+                          <span class="text-lg leading-none mt-0.5" x-text="c.kind==='amount' ? '💰' : c.kind==='added' ? '➕' : '📅'"></span>
+                          <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500" x-text="t(c.kind==='amount' ? 'amount_changed' : c.kind==='added' ? 'new_date' : 'moved')"></div>
+                            <div class="text-sm font-semibold">
+                              <template x-if="c.old"><span class="line-through text-slate-400 mr-1" x-text="c.kind==='amount' ? c.old : fmtDate(c.old)"></span></template>
+                              <span x-show="c.old">→</span>
+                              <span class="text-indigo-700 dark:text-indigo-300" x-text="c.kind==='amount' ? c.new : fmtDate(c.new)"></span>
+                            </div>
+                            <div class="text-xs text-slate-500 line-clamp-1" x-text="c.label"></div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <div x-show="s.update.ai_changes?.length" class="mt-3">
+                      <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1" x-text="'✨ ' + t('ai_changes')"></div>
+                      <ul class="space-y-1"><template x-for="c in s.update.ai_changes"><li class="text-sm flex gap-2"><span class="text-indigo-500">●</span><span x-text="c"></span></li></template></ul>
+                    </div>
+                  </div>
+                </template>
+
 
                 <!-- countdown -->
                 <template x-if="nextDeadline()">
@@ -272,6 +306,20 @@
               </div>
             </article>
 
+            <!-- Task timeline chart for this notice -->
+            <template x-if="timeline">
+              <div class="viz-root rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div class="flex flex-wrap items-center gap-3 mb-2">
+                  <div class="text-sm font-semibold">📈 <span x-text="t('timeline')"></span></div>
+                  <div class="ml-auto flex items-center gap-3 text-xs text-slate-500">
+                    <span class="flex items-center gap-1"><svg width="12" height="12" viewBox="-6 -6 12 12"><path d="M0,-5 L5,0 L0,5 L-5,0 Z" fill="var(--series-1)"/></svg><span x-text="t('deadline')"></span></span>
+                    <span class="flex items-center gap-1"><svg width="12" height="12" viewBox="-6 -6 12 12"><circle r="4" fill="none" stroke="var(--series-1)" stroke-width="2"/></svg><span x-text="t('event')"></span></span>
+                  </div>
+                </div>
+                <svg :viewBox="`0 0 ${timeline.W} ${timeline.H}`" :style="`aspect-ratio:${timeline.W}/${timeline.H}`" class="w-full h-auto text-slate-700 dark:text-slate-300" role="img" :aria-label="t('timeline')" x-html="timelineSvg" @mousemove="timelineHover($event)" @mouseleave="hideTip()"></svg>
+              </div>
+            </template>
+
             <!-- Related -->
             <div x-show="result.related?.length" class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
               <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2" x-text="'🔗 ' + t('related') + ' (RAG)'"></div>
@@ -333,6 +381,107 @@
       </div>
     </section>
 
+    <!-- ================= PLANNER TAB ================= -->
+    <section x-show="tab==='plan'" class="fade-in viz-root space-y-5">
+      <div x-show="!board.length" class="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-12 text-center">
+        <div class="text-4xl mb-3">📊</div>
+        <p class="text-slate-500 mb-5" x-text="t('plan_empty')"></p>
+        <button @click="loadAllSamples()" :disabled="loadingSamples" class="rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+          <span x-text="loadingSamples ? '⏳ …' : '🧪 ' + t('load_samples')"></span>
+        </button>
+      </div>
+
+      <template x-if="board.length">
+        <div class="space-y-5">
+          <!-- KPI row -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <template x-for="k in kpis" :key="k.k">
+              <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div class="text-xs text-slate-500 flex items-center gap-1.5"><span x-text="k.icon"></span><span x-text="t(k.k)"></span></div>
+                <div class="text-3xl font-bold mt-1 tabular-nums" :class="k.k==='kpi_overdue' && k.v ? 'text-rose-600 dark:text-rose-400' : ''" x-text="k.v"></div>
+              </div>
+            </template>
+          </div>
+
+          <div class="grid lg:grid-cols-5 gap-5">
+            <!-- Priority tasks -->
+            <div class="lg:col-span-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+              <div class="flex items-center mb-3">
+                <h3 class="font-semibold" x-text="'🎯 ' + (showAllTasks ? t('all_tasks') : t('top_tasks'))"></h3>
+                <button @click="showAllTasks=!showAllTasks" class="ml-auto text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                  x-text="showAllTasks ? t('show_top') : tf('show_all', {n: allTasks.length})"></button>
+              </div>
+              <ol class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                <template x-for="(tk,i) in visibleTasks" :key="tk.key">
+                  <li class="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3 transition" :class="tk.done && 'opacity-50'">
+                    <div class="h-7 w-7 shrink-0 rounded-lg grid place-items-center text-xs font-bold"
+                      :class="i===0 && !showAllTasks ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800'" x-text="i+1"></div>
+                    <div class="min-w-0 flex-1">
+                      <div class="text-sm font-medium line-clamp-2" :class="tk.done && 'line-through'" x-text="tk.task"></div>
+                      <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span class="rounded-full px-2 py-0.5 font-semibold" :class="urgencyChip(tk.urgency)" x-text="t('urg_'+tk.urgency)"></span>
+                        <span class="font-semibold" :class="tk.days!==null && tk.days<=3 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'" x-text="'⏳ ' + taskWhen(tk)"></span>
+                        <button @click="openItem({...tk.item, v: viewOf(tk.item)})" class="text-slate-500 hover:text-indigo-600 truncate max-w-[180px]" x-text="tk.emoji + ' ' + tk.title"></button>
+                      </div>
+                    </div>
+                    <input type="checkbox" class="mt-1 h-4 w-4 accent-indigo-600" :checked="tk.done" @change="toggleCheck(tk.key)" />
+                  </li>
+                </template>
+                <li x-show="!visibleTasks.length" class="text-sm text-slate-500 text-center py-6">🎉</li>
+              </ol>
+            </div>
+
+            <!-- Workload chart -->
+            <div class="lg:col-span-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+              <h3 class="font-semibold mb-2" x-text="'📊 ' + t('workload')"></h3>
+              <svg :viewBox="`0 0 ${workload.W} ${workload.H}`" :style="`aspect-ratio:${workload.W}/${workload.H}`" class="w-full h-auto text-slate-700 dark:text-slate-200" role="img" :aria-label="t('workload')" x-html="workloadSvg" @mousemove="workloadHover($event)" @mouseleave="hideTip()"></svg>
+            </div>
+          </div>
+
+          <!-- Calendar -->
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+            <div class="flex items-center gap-2 mb-3">
+              <h3 class="font-semibold" x-text="'📅 ' + t('calendar')"></h3>
+              <div class="ml-auto flex items-center gap-1">
+                <button @click="shiftMonth(-1)" class="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">‹</button>
+                <div class="min-w-[150px] text-center text-sm font-semibold" x-text="calTitle"></div>
+                <button @click="shiftMonth(1)" class="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">›</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-slate-500 mb-1">
+              <template x-for="w in weekdays"><div x-text="w"></div></template>
+            </div>
+            <div class="grid grid-cols-7 gap-1">
+              <template x-for="c in calCells" :key="c.iso">
+                <button @click="calSel = c.iso" class="min-h-[78px] rounded-lg border p-1 text-left align-top transition hover:border-indigo-400"
+                  :class="[c.inMonth ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-950 opacity-50',
+                           c.today ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-800',
+                           calSel===c.iso ? 'bg-indigo-50 dark:bg-indigo-500/10' : '']">
+                  <div class="text-[11px] font-semibold" :class="c.today && 'text-indigo-600 dark:text-indigo-400'" x-text="c.day"></div>
+                  <template x-for="(e,j) in c.events.slice(0,2)" :key="j">
+                    <div class="mt-0.5 truncate rounded px-1 py-0.5 text-[10px] font-medium"
+                      :class="e.is_deadline ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300' : 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300'"
+                      x-text="(e.is_deadline ? '⏰ ' : e.emoji + ' ') + e.title"></div>
+                  </template>
+                  <div x-show="c.events.length > 2" class="text-[10px] text-slate-500 mt-0.5" x-text="'+' + (c.events.length - 2)"></div>
+                </button>
+              </template>
+            </div>
+            <div x-show="calSel" class="mt-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3">
+              <div class="text-sm font-semibold mb-2" x-text="calSel && fmtDate(calSel)"></div>
+              <template x-for="(e,j) in (calEvents[calSel] || [])" :key="j">
+                <button @click="openItem({...e.item, v: viewOf(e.item)})" class="w-full text-left flex items-start gap-2 py-1.5 text-sm hover:text-indigo-600">
+                  <span x-text="e.is_deadline ? '⏰' : e.emoji"></span>
+                  <span class="min-w-0"><b x-text="e.title"></b><span class="block text-xs text-slate-500 line-clamp-1" x-text="e.label + (e.time ? ' · ' + e.time : '')"></span></span>
+                </button>
+              </template>
+              <div x-show="!(calEvents[calSel] || []).length" class="text-xs text-slate-500" x-text="t('no_events')"></div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <!-- ================= BOARD TAB ================= -->
     <section x-show="tab==='board'" class="fade-in">
       <div class="flex flex-wrap items-center gap-2 mb-5">
@@ -347,13 +496,14 @@
       </div>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <template x-for="b in boardItems" :key="b.id">
-          <div class="group relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:shadow-lg hover:-translate-y-0.5 transition cursor-pointer" @click="openItem(b)">
+          <div class="group relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:shadow-lg hover:-translate-y-0.5 transition cursor-pointer" :class="b.supersededBy && 'opacity-60'" @click="openItem(b)">
             <div class="h-1.5 bg-gradient-to-r" :class="urgencyClasses(b.v.summary.urgency)"></div>
             <div class="p-4">
-              <div class="flex items-center gap-2 text-[11px] font-semibold mb-2">
+              <div class="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold mb-2 whitespace-nowrap">
                 <span class="rounded-full px-2 py-0.5" :class="urgencyChip(b.v.summary.urgency)" x-text="t('urg_'+b.v.summary.urgency)"></span>
                 <span class="rounded-full px-2 py-0.5 bg-slate-100 dark:bg-slate-800" x-text="(catEmoji[b.v.summary.category]||'📌') + ' ' + t('cat_'+b.v.summary.category)"></span>
                 <span x-show="b.v.summary.relevance?.verdict==='yes'" class="rounded-full px-2 py-0.5" :class="relChip('yes')" x-text="'👤 ' + t('rel_yes')"></span>
+                <span x-show="b.supersededBy" class="rounded-full px-2 py-0.5 bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300" :title="b.supersededBy?.title" x-text="'🔁 ' + t('replaced')"></span>
               </div>
               <h3 class="font-bold leading-snug" x-text="b.v.summary.emoji + ' ' + b.v.summary.title"></h3>
               <p class="mt-1 text-sm text-slate-600 dark:text-slate-400 line-clamp-3" x-text="b.v.summary.tldr"></p>
@@ -450,6 +600,13 @@
         <button x-show="step<2" @click="finishOnboard(false)" class="mt-4 w-full text-center text-xs text-slate-400 hover:text-slate-600" x-text="t('skip')"></button>
       </div>
     </div>
+  </div>
+
+  <!-- chart tooltip -->
+  <div x-show="tip.show" class="pointer-events-none fixed z-50 max-w-xs rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-3 py-2 text-xs shadow-xl"
+    :style="`left:${Math.min(tip.x + 14, window.innerWidth - 300)}px; top:${tip.y + 14}px`">
+    <div class="font-semibold mb-0.5" x-text="tip.title"></div>
+    <template x-for="l in tip.lines"><div class="opacity-80" x-text="l"></div></template>
   </div>
 
   <!-- toast -->

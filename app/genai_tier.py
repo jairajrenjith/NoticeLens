@@ -57,6 +57,9 @@ ML CATEGORY GUESS: {category}
 RELATED PAST CIRCULARS (for context only — mention if this one updates/changes an earlier one):
 {related}
 
+EARLIER VERSION THIS CIRCULAR MAY UPDATE (compare against it):
+{previous}
+
 CIRCULAR:
 \"\"\"{text}\"\"\"
 
@@ -72,11 +75,12 @@ Return ONLY JSON with this exact shape:
  "urgency": "high|medium|low",
  "relevant_to_you": {{"verdict": "yes|no|maybe", "reason": "one short sentence addressed to the student"}},
  "penalty": "what happens if ignored, one short sentence, or null",
- "related_note": "one sentence linking to a related past circular, or null"
+ "related_note": "one sentence linking to a related past circular, or null",
+ "changes": ["if this updates the EARLIER VERSION: each concrete change, e.g. 'Fee deadline moved from 3 Nov to 7 Nov'. Empty list otherwise"]
 }}"""
 
 
-def summarize(text, lang, profile, rules, ml, related):
+def summarize(text, lang, profile, rules, ml, related, previous=None):
     t0 = time.perf_counter()
     facts = {
         "dates": [{k: d[k] for k in ("date", "time", "context", "is_deadline")} for d in rules["dates"]],
@@ -87,7 +91,8 @@ def summarize(text, lang, profile, rules, ml, related):
     prompt = SUMMARY_PROMPT.format(
         today=date.today().isoformat(), lang=LANG_NAMES.get(lang, "English"),
         profile=json.dumps(profile or {}, ensure_ascii=False), facts=json.dumps(facts, ensure_ascii=False),
-        category=f"{ml['category']['label']} ({ml['category']['confidence']})", related=rel, text=text[:12000])
+        category=f"{ml['category']['label']} ({ml['category']['confidence']})", related=rel, text=text[:12000],
+        previous=f"[{previous['title']}]\n{previous['text'][:5000]}" if previous else "none")
     out = _parse(_gen(prompt))
     out["ms"] = round((time.perf_counter() - t0) * 1000)
     out["model"] = MODEL

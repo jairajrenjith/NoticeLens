@@ -13,8 +13,9 @@ from .data import SAMPLES, TRAIN
 CATEGORY_EMOJI = {"exam": "📝", "fee": "💰", "placement": "💼", "event": "🎉", "holiday": "🏖️",
                   "scholarship": "🎓", "hostel": "🏠", "academic": "📚"}
 
+_SAMPLE_LABEL = {"fee": "fee", "fee_revised": "fee", "exam": "exam", "placement": "placement", "event": "event"}
 _texts = [t for t, _ in TRAIN] + [s["text"] for s in SAMPLES]
-_labels = [l for _, l in TRAIN] + ["fee", "exam", "placement", "event"]
+_labels = [l for _, l in TRAIN] + [_SAMPLE_LABEL[s["id"]] for s in SAMPLES]
 classifier = make_pipeline(
     TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, stop_words="english"),
     LogisticRegression(max_iter=2000, C=8),
