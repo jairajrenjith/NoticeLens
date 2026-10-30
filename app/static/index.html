@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoticeLens · Smart Notice Board Summarizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
+  <script src="/static/vendor/tailwind.js"></script>
+  <script>
+    tailwind.config = { darkMode: "class", theme: { extend: { fontFamily: { sans: ["Inter", "Noto Sans", "Noto Sans Malayalam", "Noto Sans Devanagari", "Noto Sans Tamil", "system-ui", "sans-serif"] } } } };
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { -webkit-font-smoothing: antialiased; }
+    .glass { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+    .fade-in { animation: fade .35s ease both; }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .pulse-dot { animation: pd 1.2s infinite; }
+    @keyframes pd { 50% { opacity: .35; } }
+    textarea::placeholder { white-space: pre-line; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #94a3b855; border-radius: 8px; }
+  </style>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/app.js"></script>
+  <script defer src="/static/vendor/alpine.js"></script>
+</head>
+
+<body x-data="app()" x-init="init()" x-cloak
+  class="min-h-screen bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors">
+
+  <!-- background glow -->
+  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-40 -left-32 h-96 w-96 rounded-full bg-indigo-400/20 blur-3xl dark:bg-indigo-600/20"></div>
+    <div class="absolute top-40 -right-32 h-96 w-96 rounded-full bg-fuchsia-400/20 blur-3xl dark:bg-fuchsia-600/10"></div>
+  </div>
+
+  <!-- ================= HEADER ================= -->
+  <header class="sticky top-0 z-30 glass bg-white/70 dark:bg-slate-950/70 border-b border-slate-200/70 dark:border-slate-800">
+    <div class="mx-auto max-w-6xl px-4 h-16 flex items-center gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 grid place-items-center text-white text-lg shadow-lg shadow-indigo-500/30">📋</div>
+        <div class="leading-tight">
+          <div class="font-bold tracking-tight">NoticeLens</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap" x-text="t('tagline')"></div>
+        </div>
+      </div>
+
+      <nav class="ml-4 hidden md:flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+        <template x-for="n in [['summarize','✨'],['board','🗂️'],['ask','💬']]" :key="n[0]">
+          <button @click="tab=n[0]" class="px-3 py-1.5 rounded-lg text-sm font-medium transition whitespace-nowrap"
+            :class="tab===n[0] ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
+            <span x-text="n[1]"></span> <span x-text="t('nav_'+n[0])"></span>
+            <span x-show="n[0]==='board' && board.length" class="ml-1 text-[10px] rounded-full bg-indigo-600 text-white px-1.5" x-text="board.length"></span>
+          </button>
+        </template>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2">
+        <!-- AI status pill -->
+        <button @click="useAi=!useAi" :title="t('use_ai')"
+          class="hidden sm:flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition whitespace-nowrap"
+          :class="aiActive ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'">
+          <span class="h-2 w-2 rounded-full" :class="aiActive ? 'bg-emerald-500 pulse-dot' : 'bg-slate-400'"></span>
+          <span x-text="aiActive ? t('ai_on') : t('ai_off')"></span>
+        </button>
+        <!-- language -->
+        <div class="relative">
+          <select x-model="lang" aria-label="Language"
+            class="appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-8 pr-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <template x-for="l in langs" :key="l.code"><option :value="l.code" x-text="l.native" :selected="l.code===lang"></option></template>
+          </select>
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">🌐</span>
+        </div>
+        <!-- theme -->
+        <button @click="dark=!dark" :title="t('theme')" class="h-9 w-9 grid place-items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:scale-105 transition">
+          <span x-text="dark ? '☀️' : '🌙'"></span>
+        </button>
+        <!-- profile -->
+        <button @click="onboard=true; step=1" :title="t('profile')"
+          class="hidden lg:flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium whitespace-nowrap">
+          🎓 <span x-text="profile.semester ? profile.semester + ' · ' + (profile.branch||'') : t('profile')"></span>
+        </button>
+        <button @click="onboard=true; step=0" :title="t('help')" class="h-9 w-9 grid place-items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold">?</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- mobile nav -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 glass bg-white/80 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3">
+    <template x-for="n in [['summarize','✨'],['board','🗂️'],['ask','💬']]" :key="n[0]">
+      <button @click="tab=n[0]" class="py-2.5 text-xs font-medium flex flex-col items-center gap-0.5" :class="tab===n[0] ? 'text-indigo-600 dark:text-indigo-300' : 'text-slate-500'">
+        <span class="text-lg" x-text="n[1]"></span><span x-text="t('nav_'+n[0])"></span>
+      </button>
+    </template>
+  </nav>
+
+  <main class="mx-auto max-w-6xl px-4 py-6 pb-24 md:pb-10">
+
+    <!-- ================= SUMMARIZE TAB ================= -->
+    <section x-show="tab==='summarize'" class="grid lg:grid-cols-5 gap-6">
+      <!-- Input -->
+      <div class="lg:col-span-2 space-y-3">
+        <div class="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm transition"
+          :class="dragging ? 'border-indigo-500 ring-4 ring-indigo-500/20' : 'border-slate-200 dark:border-slate-800'"
+          @dragover.prevent="dragging=true" @dragleave.prevent="dragging=false" @drop.prevent="onDrop($event)">
+          <textarea x-model="text" rows="13" :placeholder="t('paste_placeholder')"
+            class="w-full resize-none rounded-t-2xl bg-transparent p-4 text-sm leading-relaxed outline-none placeholder:text-slate-400"></textarea>
+          <div class="flex flex-wrap items-center gap-2 border-t border-slate-100 dark:border-slate-800 px-3 py-2.5">
+            <label class="cursor-pointer inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+              <span x-text="uploading ? '⏳' : '📎'"></span> <span x-text="t('upload')"></span>
+              <input type="file" class="hidden" accept=".pdf,.txt,image/*" @change="upload($event.target.files[0]); $event.target.value=''" />
+            </label>
+            <div class="relative">
+              <button @click="showSamples=!showSamples" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 hover:bg-indigo-100 transition">
+                🧪 <span x-text="t('try_sample')"></span> ▾
+              </button>
+              <div x-show="showSamples" @click.outside="showSamples=false" x-transition
+                class="absolute z-20 mt-2 w-56 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1">
+                <template x-for="s in samples" :key="s.id">
+                  <button @click="loadSample(s)" class="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800" x-text="s.label"></button>
+                </template>
+              </div>
+            </div>
+            <span class="ml-auto text-[11px] text-slate-400" x-text="wordCount + ' ' + t('words')"></span>
+            <button x-show="text" @click="clearAll()" class="text-xs text-slate-400 hover:text-rose-500" x-text="t('clear')"></button>
+          </div>
+        </div>
+
+        <button @click="summarize()" :disabled="!text.trim() || loading"
+          class="w-full rounded-2xl py-3.5 font-semibold text-white shadow-lg shadow-indigo-500/25 bg-gradient-to-r from-indigo-600 to-fuchsia-600 hover:brightness-110 active:scale-[.99] transition disabled:opacity-40 disabled:cursor-not-allowed">
+          <span x-show="!loading">✨ <span x-text="t('summarize_btn')"></span> <span class="text-white/60 text-xs font-normal ml-1" x-text="'(' + t('shortcut') + ')'"></span></span>
+          <span x-show="loading" class="inline-flex items-center gap-2"><svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3"/></svg> …</span>
+        </button>
+
+        <label class="flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm cursor-pointer">
+          <span>🤖 <span x-text="t('use_ai')"></span> <span class="text-xs text-slate-400" x-show="!health.ai_enabled">(no API key)</span></span>
+          <span class="relative inline-flex h-6 w-11 items-center rounded-full transition" :class="useAi ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'">
+            <input type="checkbox" x-model="useAi" class="sr-only" />
+            <span class="inline-block h-5 w-5 rounded-full bg-white shadow transition" :class="useAi ? 'translate-x-5' : 'translate-x-0.5'"></span>
+          </span>
+        </label>
+
+        <div x-show="error" x-transition class="rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 px-4 py-3 text-sm" x-text="'⚠️ ' + error"></div>
+      </div>
+
+      <!-- Output -->
+      <div class="lg:col-span-3" id="result">
+        <!-- Loading -->
+        <div x-show="loading" class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4 fade-in">
+          <template x-for="i in [1,2,3]" :key="i">
+            <div class="flex items-center gap-3 transition" :class="loadStep>=i ? 'opacity-100' : 'opacity-30'">
+              <div class="h-8 w-8 rounded-full grid place-items-center text-sm font-bold"
+                :class="loadStep>i ? 'bg-emerald-500 text-white' : loadStep===i ? 'bg-indigo-600 text-white pulse-dot' : 'bg-slate-200 dark:bg-slate-800'"
+                x-text="loadStep>i ? '✓' : i"></div>
+              <span class="text-sm" x-text="t('loading_'+i)"></span>
+            </div>
+          </template>
+          <div class="space-y-2 pt-2"><div class="h-4 w-2/3 rounded bg-slate-200 dark:bg-slate-800 animate-pulse"></div><div class="h-3 w-full rounded bg-slate-200 dark:bg-slate-800 animate-pulse"></div><div class="h-3 w-5/6 rounded bg-slate-200 dark:bg-slate-800 animate-pulse"></div></div>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!loading && !result" class="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center fade-in">
+          <div class="text-5xl mb-3">🗞️ → 📌</div>
+          <h2 class="text-xl font-bold mb-6" x-text="t('empty_title')"></h2>
+          <div class="grid sm:grid-cols-3 gap-3 text-left">
+            <template x-for="(e,i) in ['📥','🎯','🌐']" :key="i">
+              <div class="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+                <div class="text-2xl mb-2" x-text="e"></div>
+                <div class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1" x-text="(i+1)"></div>
+                <div class="text-sm text-slate-600 dark:text-slate-300" x-text="t('empty_'+(i+1))"></div>
+              </div>
+            </template>
+          </div>
+          <button @click="samples[0] && loadSample(samples[0])" class="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-indigo-700 transition">🧪 <span x-text="t('try_now')"></span></button>
+        </div>
+
+        <!-- Result card -->
+        <template x-if="!loading && result">
+          <div class="space-y-4 fade-in">
+            <article class="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+              <div class="h-1.5 bg-gradient-to-r" :class="urgencyClasses(s.urgency)"></div>
+              <div class="p-5 sm:p-6">
+                <!-- chips -->
+                <div class="flex flex-wrap items-center gap-2 mb-3 text-xs font-semibold">
+                  <span class="rounded-full px-2.5 py-1" :class="urgencyChip(s.urgency)" x-text="(s.urgency==='high'?'🔴 ':s.urgency==='medium'?'🟡 ':'🟢 ') + t('urg_'+s.urgency)"></span>
+                  <span class="rounded-full px-2.5 py-1 bg-slate-100 dark:bg-slate-800" x-text="(catEmoji[s.category]||'📌') + ' ' + t('cat_'+s.category)"></span>
+                  <span class="rounded-full px-2.5 py-1" :class="relChip(s.relevance?.verdict)" x-text="(s.relevance?.verdict==='yes'?'👤 ':s.relevance?.verdict==='no'?'🚫 ':'❔ ') + t('rel_'+(s.relevance?.verdict||'maybe'))"></span>
+                  <span class="ml-auto rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
+                    :class="s.source==='ai' ? 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'"
+                    x-text="s.source==='ai' ? '✨ AI' : '⚡ Rules + ML'"></span>
+                </div>
+
+                <h2 class="text-2xl font-bold tracking-tight flex items-start gap-2"><span x-text="s.emoji"></span><span x-text="s.title"></span></h2>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" x-show="s.relevance?.reason" x-text="s.relevance?.reason"></p>
+
+                <!-- countdown -->
+                <template x-if="nextDeadline()">
+                  <div class="mt-4 flex items-center gap-4 rounded-xl p-4 bg-gradient-to-r text-white" :class="urgencyClasses(daysLeft(nextDeadline().date) <= 3 ? 'high' : daysLeft(nextDeadline().date) <= 7 ? 'medium' : 'low')">
+                    <div class="text-3xl">⏳</div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs uppercase tracking-wide opacity-90" x-text="t('next_deadline')"></div>
+                      <div class="text-lg font-bold" x-text="countdown(nextDeadline().date) + ' · ' + fmtDate(nextDeadline().date)"></div>
+                      <div class="text-xs opacity-90 truncate" x-text="nextDeadline().label"></div>
+                    </div>
+                    <button @click="addCalendar(nextDeadline())" class="shrink-0 rounded-lg bg-white/20 hover:bg-white/30 px-3 py-2 text-xs font-semibold">📅</button>
+                  </div>
+                </template>
+
+                <!-- TL;DR -->
+                <div class="mt-5">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 mb-1" x-text="t('tldr')"></div>
+                  <p class="text-[15px] leading-relaxed" x-text="s.tldr"></p>
+                </div>
+
+                <!-- Key points -->
+                <div class="mt-5" x-show="s.key_points?.length">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 mb-2" x-text="t('key_points')"></div>
+                  <ul class="space-y-1.5">
+                    <template x-for="p in s.key_points"><li class="flex gap-2 text-sm"><span class="text-indigo-500 mt-0.5">●</span><span x-text="p"></span></li></template>
+                  </ul>
+                </div>
+
+                <!-- Actions -->
+                <div class="mt-5" x-show="s.actions?.length">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 mb-2" x-text="'✅ ' + t('actions')"></div>
+                  <div class="space-y-2">
+                    <template x-for="(a,i) in s.actions" :key="i">
+                      <label class="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                        <input type="checkbox" class="mt-0.5 h-4 w-4 accent-indigo-600" :checked="checked[result.id+'-'+i]" @change="toggleCheck(result.id+'-'+i)" />
+                        <span class="flex-1 text-sm" :class="checked[result.id+'-'+i] && 'line-through text-slate-400'" x-text="a.task"></span>
+                        <span x-show="a.deadline" class="shrink-0 text-[11px] font-semibold rounded-md px-2 py-0.5 bg-slate-100 dark:bg-slate-800" x-text="a.deadline && fmtDate(a.deadline)"></span>
+                      </label>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Penalty -->
+                <div x-show="s.penalty" class="mt-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 px-4 py-3 text-sm">
+                  <b x-text="'⚠️ ' + t('penalty') + ': '"></b><span x-text="s.penalty"></span>
+                </div>
+
+                <!-- Dates -->
+                <div class="mt-5" x-show="s.dates?.length">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 mb-2" x-text="'📅 ' + t('dates')"></div>
+                  <div class="grid sm:grid-cols-2 gap-2">
+                    <template x-for="(d,i) in s.dates" :key="i">
+                      <button @click="addCalendar(d)" :title="t('add_cal')" class="group text-left flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-2.5 hover:border-indigo-400 transition" :class="daysLeft(d.date)<0 && 'opacity-50'">
+                        <div class="h-11 w-11 shrink-0 rounded-lg grid place-items-center text-center leading-none" :class="d.is_deadline ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300'">
+                          <div><div class="text-base font-bold" x-text="d.date.slice(8,10)"></div><div class="text-[9px] uppercase" x-text="fmtDate(d.date).split(' ').slice(-1)[0]"></div></div>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm font-medium line-clamp-2" x-text="d.label"></div>
+                          <div class="text-[11px] text-slate-500" x-text="countdown(d.date) + (d.time ? ' · ' + d.time : '')"></div>
+                        </div>
+                        <span class="opacity-0 group-hover:opacity-100 text-xs">➕</span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+
+                <p x-show="s.related_note" class="mt-4 text-xs text-slate-500 italic" x-text="'🔗 ' + s.related_note"></p>
+                <p x-show="s.source!=='ai'" class="mt-4 text-xs text-slate-500 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2" x-text="'⚡ ' + t('offline_note')"></p>
+              </div>
+
+              <!-- Action bar -->
+              <div class="flex flex-wrap items-center gap-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 px-4 py-3">
+                <button @click="speak()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition"><span x-text="speaking ? '⏹️' : '🔊'"></span><span x-text="speaking ? t('stop') : t('read_aloud')"></span></button>
+                <button @click="share()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition">💬 <span x-text="t('share')"></span></button>
+                <button @click="addCalendar()" x-show="s.dates?.length" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition">📅 <span x-text="t('add_cal')"></span></button>
+                <button @click="copy()" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition">📋 <span x-text="t('copy')"></span></button>
+                <span class="ml-auto text-[11px] text-slate-500" x-text="'⏱️ ' + tf('time_saved', {a: result.stats.original_words, b: result.stats.summary_words, s: result.stats.read_time_saved_s})"></span>
+              </div>
+            </article>
+
+            <!-- Related -->
+            <div x-show="result.related?.length" class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+              <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2" x-text="'🔗 ' + t('related') + ' (RAG)'"></div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="r in result.related" :key="r.id">
+                  <span class="rounded-lg bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs" x-text="(catEmoji[r.category]||'📌') + ' ' + r.title + ' · ' + Math.round(r.score*100) + '%'"></span>
+                </template>
+              </div>
+            </div>
+
+            <!-- Pipeline / How it works -->
+            <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <button @click="showPipeline=!showPipeline" class="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold">
+                <span>🧠 <span x-text="t('pipeline')"></span></span>
+                <span class="flex items-center gap-2 text-xs font-normal text-slate-500">
+                  <span x-text="result.tiers.rules.ms + 'ms · ' + result.tiers.ml.ms + 'ms · ' + (result.tiers.ai ? result.tiers.ai.ms + 'ms' : '—')"></span>
+                  <span x-text="showPipeline ? '▴' : '▾'"></span>
+                </span>
+              </button>
+              <div x-show="showPipeline" x-transition class="grid md:grid-cols-3 gap-3 px-4 pb-4">
+                <!-- Tier 1 -->
+                <div class="rounded-xl bg-sky-50 dark:bg-sky-500/5 border border-sky-200 dark:border-sky-900 p-3 text-xs space-y-1.5">
+                  <div class="flex justify-between font-bold text-sky-700 dark:text-sky-300"><span x-text="'① ' + t('tier1')"></span><span x-text="result.tiers.rules.ms+'ms'"></span></div>
+                  <div>📅 <b x-text="result.tiers.rules.dates.length"></b> dates · ⏰ <b x-text="result.tiers.rules.deadlines.length"></b> deadlines</div>
+                  <div x-show="result.tiers.rules.amounts.length">💰 <span x-text="result.tiers.rules.amounts.join(', ')"></span></div>
+                  <div x-show="result.tiers.rules.venues.length">📍 <span x-text="result.tiers.rules.venues.join(', ')"></span></div>
+                  <div>👥 <span x-text="[...result.tiers.rules.audience.semesters, ...result.tiers.rules.audience.branches].join(', ') || (result.tiers.rules.audience.all_students ? 'All students' : '—')"></span></div>
+                  <div>🚦 <span x-text="result.tiers.rules.urgency.level + ' (score ' + result.tiers.rules.urgency.score + ')'"></span></div>
+                  <div class="flex flex-wrap gap-1"><template x-for="w in result.tiers.rules.urgency.signals"><span class="rounded bg-white dark:bg-slate-800 px-1.5 py-0.5" x-text="w"></span></template></div>
+                  <div class="text-slate-500">🧹 <span x-text="result.tiers.rules.removed_boilerplate_lines"></span> boilerplate lines removed</div>
+                </div>
+                <!-- Tier 2 -->
+                <div class="rounded-xl bg-violet-50 dark:bg-violet-500/5 border border-violet-200 dark:border-violet-900 p-3 text-xs space-y-2">
+                  <div class="flex justify-between font-bold text-violet-700 dark:text-violet-300"><span x-text="'② ' + t('tier2')"></span><span x-text="result.tiers.ml.ms+'ms'"></span></div>
+                  <div class="text-slate-500">TF-IDF + LogisticRegression</div>
+                  <template x-for="c in result.tiers.ml.category.top3">
+                    <div>
+                      <div class="flex justify-between"><span x-text="(catEmoji[c.label]||'') + ' ' + c.label"></span><span x-text="Math.round(c.p*100)+'%'"></span></div>
+                      <div class="h-1.5 rounded bg-violet-100 dark:bg-slate-800"><div class="h-1.5 rounded bg-violet-500" :style="'width:'+Math.round(c.p*100)+'%'"></div></div>
+                    </div>
+                  </template>
+                  <div class="text-slate-500 pt-1">TextRank top sentences</div>
+                  <template x-for="(k,i) in result.tiers.ml.key_sentences"><div class="line-clamp-2"><b x-text="result.tiers.ml.sentence_scores[i]"></b> · <span x-text="k"></span></div></template>
+                </div>
+                <!-- Tier 3 -->
+                <div class="rounded-xl bg-fuchsia-50 dark:bg-fuchsia-500/5 border border-fuchsia-200 dark:border-fuchsia-900 p-3 text-xs space-y-1.5">
+                  <div class="flex justify-between font-bold text-fuchsia-700 dark:text-fuchsia-300"><span x-text="'③ ' + t('tier3')"></span><span x-text="result.tiers.ai ? result.tiers.ai.ms+'ms' : 'off'"></span></div>
+                  <div>🔎 RAG: <b x-text="result.tiers.rag.matches"></b> <span x-text="t('matches')"></span> / <span x-text="result.tiers.rag.store_size"></span></div>
+                  <div x-show="result.tiers.ai">🤖 <span x-text="result.tiers.ai?.model"></span></div>
+                  <div x-show="result.tiers.ai">👤 Personalised for <b x-text="(profile.semester||'?') + ' ' + (profile.branch||'')"></b></div>
+                  <div x-show="result.tiers.ai">🌐 Output language: <b x-text="langs.find(l=>l.code===result.lang)?.native"></b></div>
+                  <div x-show="result.tiers.ai">🛡️ Grounded on Tier-1 facts (no invented dates)</div>
+                  <div x-show="!result.tiers.ai" class="text-slate-500" x-text="'⚡ ' + (result.tiers.ai_error || 'AI tier turned off') + ' → fell back to Tier 1 + 2'"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ================= BOARD TAB ================= -->
+    <section x-show="tab==='board'" class="fade-in">
+      <div class="flex flex-wrap items-center gap-2 mb-5">
+        <button @click="filter='all'" class="rounded-full px-3 py-1.5 text-sm font-medium border transition" :class="filter==='all' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'" x-text="t('all')"></button>
+        <template x-for="c in cats" :key="c">
+          <button @click="filter=c" class="rounded-full px-3 py-1.5 text-sm font-medium border transition" :class="filter===c ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'" x-text="catEmoji[c] + ' ' + t('cat_'+c)"></button>
+        </template>
+        <label class="ml-auto flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" x-model="forMe" class="h-4 w-4 accent-indigo-600" /> 👤 <span x-text="t('for_me')"></span></label>
+      </div>
+      <div x-show="!boardItems.length" class="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-12 text-center text-slate-500">
+        <div class="text-4xl mb-3">🗂️</div><p x-text="t('board_empty')"></p>
+      </div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="b in boardItems" :key="b.id">
+          <div class="group relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:shadow-lg hover:-translate-y-0.5 transition cursor-pointer" @click="openItem(b)">
+            <div class="h-1.5 bg-gradient-to-r" :class="urgencyClasses(b.v.summary.urgency)"></div>
+            <div class="p-4">
+              <div class="flex items-center gap-2 text-[11px] font-semibold mb-2">
+                <span class="rounded-full px-2 py-0.5" :class="urgencyChip(b.v.summary.urgency)" x-text="t('urg_'+b.v.summary.urgency)"></span>
+                <span class="rounded-full px-2 py-0.5 bg-slate-100 dark:bg-slate-800" x-text="(catEmoji[b.v.summary.category]||'📌') + ' ' + t('cat_'+b.v.summary.category)"></span>
+                <span x-show="b.v.summary.relevance?.verdict==='yes'" class="rounded-full px-2 py-0.5" :class="relChip('yes')" x-text="'👤 ' + t('rel_yes')"></span>
+              </div>
+              <h3 class="font-bold leading-snug" x-text="b.v.summary.emoji + ' ' + b.v.summary.title"></h3>
+              <p class="mt-1 text-sm text-slate-600 dark:text-slate-400 line-clamp-3" x-text="b.v.summary.tldr"></p>
+              <div x-show="nextDeadline(b.v.summary)" class="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-400" x-text="nextDeadline(b.v.summary) && ('⏳ ' + countdown(nextDeadline(b.v.summary).date) + ' · ' + fmtDate(nextDeadline(b.v.summary).date))"></div>
+            </div>
+            <button @click.stop="deleteItem(b)" :title="t('delete')" class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs hover:bg-rose-100 hover:text-rose-600 transition">✕</button>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ================= ASK TAB ================= -->
+    <section x-show="tab==='ask'" class="max-w-3xl mx-auto fade-in">
+      <div class="text-center mb-6">
+        <div class="text-4xl mb-2">💬</div>
+        <h2 class="text-2xl font-bold" x-text="t('ask_title')"></h2>
+        <p class="text-sm text-slate-500" x-text="t('ask_sub')"></p>
+      </div>
+      <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 min-h-[320px] max-h-[55vh] overflow-y-auto space-y-3">
+        <div x-show="!chat.length" class="flex flex-wrap justify-center gap-2 pt-16">
+          <template x-for="q in t('ask_ex')"><button @click="ask(q)" class="rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-3.5 py-1.5 text-sm hover:bg-indigo-100 transition" x-text="q"></button></template>
+        </div>
+        <template x-for="(m,i) in chat" :key="i">
+          <div class="flex fade-in" :class="m.role==='user' ? 'justify-end' : 'justify-start'">
+            <div class="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed" :class="m.role==='user' ? 'bg-indigo-600 text-white rounded-br-md' : 'bg-slate-100 dark:bg-slate-800 rounded-bl-md'">
+              <div class="whitespace-pre-line" x-text="m.text"></div>
+              <div x-show="m.sources?.length" class="mt-2 flex flex-wrap gap-1">
+                <template x-for="(src,j) in m.sources"><span class="rounded-md bg-white/70 dark:bg-slate-900 px-2 py-0.5 text-[11px]" x-text="'[' + (j+1) + '] ' + (catEmoji[src.category]||'📌') + ' ' + src.title"></span></template>
+                <span x-show="m.source" class="text-[10px] text-slate-400 self-center" x-text="m.source==='ai' ? '✨ AI' : '⚡ offline'"></span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div x-show="asking" class="flex gap-1 px-2"><span class="h-2 w-2 rounded-full bg-slate-400 animate-bounce"></span><span class="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:.15s]"></span><span class="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:.3s]"></span></div>
+        <div id="chatEnd"></div>
+      </div>
+      <form @submit.prevent="ask()" class="mt-3 flex gap-2">
+        <input x-model="askQ" :placeholder="t('ask_placeholder')" class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+        <button class="rounded-xl bg-indigo-600 text-white px-5 font-semibold hover:bg-indigo-700 disabled:opacity-40" :disabled="!askQ.trim() || asking" x-text="t('ask_btn')"></button>
+      </form>
+    </section>
+  </main>
+
+  <!-- ================= ONBOARDING MODAL ================= -->
+  <div x-show="onboard" x-transition.opacity class="fixed inset-0 z-50 grid place-items-center bg-slate-900/60 backdrop-blur-sm p-4">
+    <div class="w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
+      <div class="h-1.5 bg-slate-100 dark:bg-slate-800"><div class="h-1.5 bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all" :style="'width:' + ((step+1)/3*100) + '%'"></div></div>
+      <div class="p-6 sm:p-8">
+        <!-- step 0: language -->
+        <div x-show="step===0" class="fade-in">
+          <div class="text-4xl mb-3">📋</div>
+          <h2 class="text-2xl font-bold" x-text="t('welcome')"></h2>
+          <p class="text-sm text-slate-500 mt-1 mb-5" x-text="t('welcome_sub')"></p>
+          <div class="grid grid-cols-2 gap-3">
+            <template x-for="l in langs" :key="l.code">
+              <button @click="lang=l.code; step=1" class="rounded-2xl border-2 p-4 text-left transition hover:border-indigo-500" :class="lang===l.code ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-slate-700'">
+                <div class="text-xl font-bold" x-text="l.native"></div><div class="text-xs text-slate-500" x-text="l.name"></div>
+              </button>
+            </template>
+          </div>
+        </div>
+        <!-- step 1: profile -->
+        <div x-show="step===1" class="fade-in">
+          <div class="text-4xl mb-3">🎓</div>
+          <h2 class="text-2xl font-bold" x-text="t('your_details')"></h2>
+          <p class="text-sm text-slate-500 mt-1 mb-5" x-text="t('your_details_sub')"></p>
+          <div class="text-xs font-semibold uppercase text-slate-500 mb-2" x-text="t('semester')"></div>
+          <div class="grid grid-cols-4 gap-2 mb-5">
+            <template x-for="s in sems"><button @click="profile.semester=s" class="rounded-xl border-2 py-2 font-semibold transition" :class="profile.semester===s ? 'border-indigo-500 bg-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-400'" x-text="s"></button></template>
+          </div>
+          <div class="text-xs font-semibold uppercase text-slate-500 mb-2" x-text="t('branch')"></div>
+          <div class="grid grid-cols-4 gap-2">
+            <template x-for="b in branches"><button @click="profile.branch=b" class="rounded-xl border-2 py-2 text-sm font-semibold transition" :class="profile.branch===b ? 'border-indigo-500 bg-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-400'" x-text="b"></button></template>
+          </div>
+          <div class="flex justify-between mt-6">
+            <button @click="step=0" class="text-sm text-slate-500" x-text="'← ' + t('back')"></button>
+            <button @click="step=2" class="rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-indigo-700" x-text="t('next') + ' →'"></button>
+          </div>
+        </div>
+        <!-- step 2: done -->
+        <div x-show="step===2" class="fade-in">
+          <div class="text-4xl mb-3">🎉</div>
+          <h2 class="text-2xl font-bold mb-4" x-text="t('done_title')"></h2>
+          <div class="space-y-3 mb-6">
+            <template x-for="(e,i) in ['📥','🚦','🔊']" :key="i">
+              <div class="flex items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3"><span class="text-2xl" x-text="e"></span><span class="text-sm" x-text="t('done_'+(i+1))"></span></div>
+            </template>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <button @click="finishOnboard(true)" class="flex-1 rounded-xl bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white py-3 font-semibold" x-text="'🧪 ' + t('try_now')"></button>
+            <button @click="finishOnboard(false)" class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 py-3 font-semibold" x-text="t('start')"></button>
+          </div>
+        </div>
+        <button x-show="step<2" @click="finishOnboard(false)" class="mt-4 w-full text-center text-xs text-slate-400 hover:text-slate-600" x-text="t('skip')"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div x-show="toastMsg" x-transition class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2.5 text-sm font-medium shadow-xl" x-text="toastMsg"></div>
+</body>
+</html>

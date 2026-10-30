@@ -1,0 +1,115 @@
+"""TIER 3 — Generative AI (Gemini) with RAG context + student personalisation + multilingual output."""
+import json
+import os
+import time
+from datetime import date
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+LANG_NAMES = {"en": "English", "ml": "Malayalam (മലയാളം)", "hi": "Hindi (हिन्दी)", "ta": "Tamil (தமிழ்)"}
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+_client = None
+
+
+def client():
+    global _client
+    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not key:
+        return None
+    if _client is None:
+        from google import genai
+        _client = genai.Client(api_key=key)
+    return _client
+
+
+def enabled():
+    return client() is not None
+
+
+def _gen(prompt, parts=None, json_mode=True):
+    from google.genai import types
+    cfg = types.GenerateContentConfig(temperature=0.2,
+                                      response_mime_type="application/json" if json_mode else "text/plain")
+    contents = (parts or []) + [prompt]
+    resp = client().models.generate_content(model=MODEL, contents=contents, config=cfg)
+    return resp.text
+
+
+def _parse(txt):
+    txt = txt.strip()
+    if txt.startswith("```"):
+        txt = txt.strip("`").split("\n", 1)[1].rsplit("```", 1)[0]
+    return json.loads(txt)
+
+
+SUMMARY_PROMPT = """You are a friendly assistant that turns long, formal college circulars into short, clear updates for students.
+Today is {today}. Write ALL text values in {lang}. Keep dates in ISO format YYYY-MM-DD. Use simple words a first-year student understands.
+
+STUDENT PROFILE: {profile}
+
+FACTS ALREADY EXTRACTED BY OUR RULE ENGINE (trust these dates/amounts, do not invent new ones):
+{facts}
+
+ML CATEGORY GUESS: {category}
+
+RELATED PAST CIRCULARS (for context only — mention if this one updates/changes an earlier one):
+{related}
+
+CIRCULAR:
+\"\"\"{text}\"\"\"
+
+Return ONLY JSON with this exact shape:
+{{
+ "title": "max 8 words, catchy, plain",
+ "emoji": "one emoji",
+ "tldr": "1-2 short sentences: what is happening and what the student must do",
+ "key_points": ["3 to 5 short bullet points, each under 15 words"],
+ "action_items": [{{"task": "short imperative task", "deadline": "YYYY-MM-DD or null"}}],
+ "important_dates": [{{"label": "what happens", "date": "YYYY-MM-DD", "time": "e.g. 10:00 AM or null", "is_deadline": true}}],
+ "category": "one of exam|fee|placement|event|holiday|scholarship|hostel|academic",
+ "urgency": "high|medium|low",
+ "relevant_to_you": {{"verdict": "yes|no|maybe", "reason": "one short sentence addressed to the student"}},
+ "penalty": "what happens if ignored, one short sentence, or null",
+ "related_note": "one sentence linking to a related past circular, or null"
+}}"""
+
+
+def summarize(text, lang, profile, rules, ml, related):
+    t0 = time.perf_counter()
+    facts = {
+        "dates": [{k: d[k] for k in ("date", "time", "context", "is_deadline")} for d in rules["dates"]],
+        "amounts": rules["amounts"], "venues": rules["venues"], "links": rules["links"],
+        "audience": rules["audience"],
+    }
+    rel = "\n".join(f"- [{r['category']}] {r['title']}: {r['tldr']}" for r in related) or "none"
+    prompt = SUMMARY_PROMPT.format(
+        today=date.today().isoformat(), lang=LANG_NAMES.get(lang, "English"),
+        profile=json.dumps(profile or {}, ensure_ascii=False), facts=json.dumps(facts, ensure_ascii=False),
+        category=f"{ml['category']['label']} ({ml['category']['confidence']})", related=rel, text=text[:12000])
+    out = _parse(_gen(prompt))
+    out["ms"] = round((time.perf_counter() - t0) * 1000)
+    out["model"] = MODEL
+    return out
+
+
+def answer(question, lang, profile, docs):
+    ctx = "\n\n".join(f"[Notice {i + 1}: {d['title']}]\n{d['text'][:3000]}" for i, d in enumerate(docs))
+    prompt = f"""You answer students' questions using ONLY the college notices below. Today is {date.today().isoformat()}.
+Student profile: {json.dumps(profile or {}, ensure_ascii=False)}
+Answer in {LANG_NAMES.get(lang, 'English')}, in 1-4 short friendly sentences. Mention exact dates/amounts. Cite the notice number like [1].
+If the notices don't contain the answer, say so honestly.
+
+NOTICES:
+{ctx}
+
+QUESTION: {question}"""
+    return _gen(prompt, json_mode=False).strip()
+
+
+def ocr(data: bytes, mime: str):
+    from google.genai import types
+    part = types.Part.from_bytes(data=data, mime_type=mime)
+    return _gen("Extract all the text from this notice/circular exactly as written. Return plain text only.",
+                parts=[part], json_mode=False).strip()
